@@ -682,6 +682,13 @@ function applyIdentity_(action, payload, sess) {
   if (action === 'parentCheckin' && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER && sess.role !== ROLES.PARENT) {
     throw apiError_('NO_PERMISSION', 'ปุ่มนี้สำหรับผู้ปกครอง — คุณครูบันทึกรับ-ส่งแทนได้ที่ "บันทึกแทน" (ต้องระบุหมายเหตุ)');
   }
+  /* ...and the same hole on a family's own leave (ผอ. 2026-11-11): parentEditLeave/parentCancelLeave resolve the
+   * parent from payload.parentId too, so a teacher could rewrite or withdraw a leave in the family's name. Only
+   * the parent screen calls them; the school's own door for a leave is editStudentLeave (admin). */
+  var FAMILY_LEAVE = { parentEditLeave: 1, parentCancelLeave: 1 };
+  if (FAMILY_LEAVE[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER && sess.role !== ROLES.PARENT) {
+    throw apiError_('NO_PERMISSION', 'ใบลานี้ผู้ปกครองเป็นผู้แก้ไข/ยกเลิก — หากโรงเรียนต้องแก้ กรุณาแจ้งแอดมิน');
+  }
   /* googleLink is ALWAYS about the caller themselves — that is the entire safety of it. Nobody types
    * an address, so nobody mistypes one onto another family. An Admin session returns below with the
    * payload untouched, which would leave this one action with no identity at all and refuse the

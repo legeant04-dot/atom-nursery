@@ -244,6 +244,11 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
       const o = await viaHost({ action: 'parentEditLeave', payload: { leaveId: 'LVS-0005', studentId: 'S10', reason: 'x' } }, P1);
       ok_('🔴 แม่น้องเอแก้ใบลาของลูกบ้านอื่น → ' + (o.error && o.error.code), o.ok === false && o.error.code === 'NO_ACCESS');
     }
+    {
+      const n = (await lvs()).length;
+      const o = await viaHost({ action: 'parentCancelLeave', payload: { parentId: 'PAR-10', studentId: 'S10', leaveId: 'LVS-0006' } }, T);
+      ok_('🔴 ครูยกเลิกใบลาในนามผู้ปกครอง → ' + (o.error && o.error.code) + ' ไม่ลบอะไร', o.ok === false && o.error.code === 'NO_PERMISSION' && (await lvs()).length === n);
+    }
     r = await step('ยกเลิกใบลาต่อเนื่อง 16–19/11', { studentId: 'S10', leaveId: 'LVS-0006' }, P10, 'parentCancelLeave', 'handleParentCancelLeave');
     { const left = (await lvs()).filter(x => x.StudentID === 'S10').map(x => String(x.Date).slice(0, 10));
       ok_('...Postgres: เหลือแค่ 16/11 (ผ่านไปแล้ว) · ยกเลิก 3 วัน', JSON.stringify(left) === '["2026-11-16"]' && r.got.data && r.got.data.cancelled === 3); }

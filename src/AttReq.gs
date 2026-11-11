@@ -77,7 +77,11 @@ function arCollapseDupes_(sh, rows) {
 function arNextId_(sh) {
   var max = 0;
   readObjects_(sh).forEach(function (r) { var m = /ATR-?(\d+)/.exec(String(r.ReqID || '')); if (m) { var n = parseInt(m[1], 10); if (n > max) max = n; } });
-  return 'ATR-' + ('00' + (max + 1)).slice(-3);
+  /* 🔴 THREE DIGITS IS A MINIMUM, NOT A WIDTH (ผอ. 2026-11-11). `('00' + 1000).slice(-3)` is '000': request
+   * 1000 became ATR-000, which parses back as 0, so EVERY later request was ATR-000 too — and arFind_ takes
+   * the first match, so approving one approved another person's time. Ids up to ATR-999 are unchanged. */
+  var n = max + 1;
+  return 'ATR-' + (n < 1000 ? ('00' + n).slice(-3) : String(n));
 }
 
 /** Write the approved time into CHECKIN_STAFF (create row if absent) + recompute late/OT. */
