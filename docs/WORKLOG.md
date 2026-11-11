@@ -32,14 +32,14 @@
 - **หลักฐาน**: test_fast_route_prepay 66 · _live 30 · live อื่นผ่านทั้งหมด · test_all 239
 - ขึ้นแล้ว: ceacfd2 · Cloud Run rev 00029
 
-**กลุ่ม 3d — เงินเดือน** `computePayroll` · `approvePayslip` · `adjustStaffPay` · `payAdjustHistory` · `markSalaryPaid` · `recomputeContributions` · `payrollDuplicates` · `contributionReset` · `deletePayrollRow` — **ยังไม่ push / ยังไม่ deploy**
+**กลุ่ม 3d — เงินเดือน** `computePayroll` · `approvePayslip` · `adjustStaffPay` · `payAdjustHistory` · `markSalaryPaid` · `recomputeContributions` · `payrollDuplicates` · `contributionReset` · `deletePayrollRow`
 - กล่องทรายได้ `engineRead`: Payroll.gs นับเด็กสำหรับเรทเด็กโดยถาม ratedChildCount ของ engine (hydrateLazy_ → createAtomAPI) · บนโฮสต์ = engine ของคำขอนี้บนข้อมูล Postgres เดียวกัน อ่านอย่างเดียว เฉพาะ handler ที่ประกาศ · ไม่ประกาศแล้วเรียก = ส่งไป Apps Script (ไม่ใช่ตอบ ฿0 เงียบ ๆ ซึ่ง ratedChildTotalFor_ จะทำถ้าเรียกไม่สำเร็จ)
 - `backupFirst`: contributionReset / deletePayrollRow แบบยืนยัน สำรองทั้งสอง workbook ก่อน (dailyBackup = ของ Apps Script) → โฮสต์ตอบดูตัวอย่างและการปฏิเสธ ส่วนการยืนยันจริงส่งไป Apps Script ทั้งก้อน · markSalaryPaid ที่แนบรูปสลิปไป Apps Script (Drive)
 - 🔴 **พบ (เรื่องเงิน)**: PAYROLL_CONFIG.SocialSecurityDeduct / TaxDeduct เป็น numeric(12,2) เพราะชื่อลงท้าย Deduct ถูกเดาว่าเป็นยอดเงิน — แต่เป็นช่องติ๊ก · ค่า true ที่หน้าจอส่งถูกเก็บเป็นค่าว่าง → ครูที่ติ๊กไว้จะไม่ถูกหักประกันสังคม ฿750 และกล่องกลับมาไม่ติ๊ก · แก้เป็น boolean (NOT_MONEY + SHEET_TYPE) · staging --apply (ว่าง) · test_schema_inventory เคย "ยืนยัน" ว่าเป็น numeric — แก้แล้ว · test_fast_host_money_live ติ๊ก SocialSecurityDeduct ใน setPayrollConfig แล้ว · ยังไม่มีข้อมูลจริงใน Postgres จึงไม่มีใครโดน
 - 🔴 **พบ**: PAYROLL.GeneratedDate เป็น `date` → เวลาสร้างสลิปหาย (payrollDuplicates แสดงถึงนาทีและใช้ตัดสินเมื่อยอดเท่ากัน) → timestamptz
 - 💰 ที่ทดสอบ (สลิปครูที พ.ย.): 15,000 + เบี้ยขยันของครูคนนี้ 1,000 + FB 500 + Big Cleaning 200 + เรทเด็ก (นับได้ 4 · จ่ายตั้งแต่คนที่ 3 → 2 × 300) 600 + ใบประกาศ 2 × 100 + ค่าเดินทาง 300 + OT เย็น 250 (ที่รออนุมัติไม่นับ) + OT ยกมาจาก ต.ค. 200 + OT วันหยุด 800 = **19,050** · หัก ประกันสังคม 750 + สมทบ 200 + เบิกล่วงหน้า 1,000 = 1,950 · **สุทธิ 17,100** · สมทบสะสม 5,000 + (200+200) + (200+200) = 5,800 · บันทึกแล้วยังไม่อนุมัติ · คำนวณใหม่ = แถวเดิม + ถอนการอนุมัติ + การจ่ายไม่ถูกทับ · สาย/ลาเกิน → ไม่มีเบี้ยขยัน/เรทเด็ก · ลาพักครึ่งเงินเดือน (STAFF ไม่ถูกแตะ) · รายวัน 20 × 500 · ครูขอคำนวณจริง = ได้ตัวอย่าง · ปรับเงินเดือนบันทึกเฉพาะช่องที่เปลี่ยน · ครูดูประวัติของคนอื่นไม่ได้ · ยอดสะสมที่อธิบายไม่ได้ 35,000 · สลิปซ้ำเก็บแถวที่จ่ายแล้ว · ลบแถวจ่ายแล้ว = ALREADY_PAID
 - **หลักฐาน**: test_fast_route_payroll 139 · _live 57 · live อื่นผ่านทั้งหมด (money 85) · test_all 240
-- W4 ครบทุกกลุ่มเมื่อ 3d ขึ้น
+- ขึ้นแล้ว: 30f055c · GAS @417 · Cloud Run rev 00030 — **W4 ครบทุกกลุ่ม**
 
 ---
 
