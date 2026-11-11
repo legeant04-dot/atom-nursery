@@ -172,7 +172,8 @@ const MONEY = new Set([
   'BaseSalary', 'NetPay', 'GrossIncome', 'AdjustmentsTotal', 'DiligenceTotal', 'ExtraChildAmount',
   'HolidayBonus', 'OtherDeductions', 'TotalDeductions', 'TrainingCertAmount',
   'Contribution', 'ContributionOpening', 'ContributionAccum', 'PauseSalaryAmount',
-  'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'SocialSecurityDeduct', 'TaxDeduct',
+  'DiligenceAttendanceAmount', 'DiligenceFacebookAmount',
+  /* NOT SocialSecurityDeduct / TaxDeduct — they read like amounts and are TICK BOXES (see SHEET_TYPE). */
   /* ─── ADDED 2026-10-09. EVERY ONE OF THESE WAS `text` IN THE GENERATED MIGRATION ───────────────
    * Found by inverting the default on the money sheets (see MONEY_SHEETS below). They are not
    * borderline: these are the lines of a payslip, read off `gross = base + dT + oi + ot + otCarry
@@ -196,6 +197,8 @@ const MONEY = new Set([
  * and water a baby drank. A money type on a child's feed is the same class of mistake as a float on
  * a payslip, pointing the other way, and the audit is what caught it. */
 const NOT_MONEY = new Set([
+  // ติ๊กหักประกันสังคม / หักภาษี — ใช่/ไม่ใช่ ไม่ใช่จำนวนเงิน (ชนิด boolean อยู่ใน SHEET_TYPE) · W4 3d 2026-11-11
+  'SocialSecurityDeduct', 'TaxDeduct',
   /* EnableChildRate (2026-10-29) — สวิตช์ว่าครูคนนี้ได้ "เรทจำนวนเด็ก" หรือไม่ ไม่ใช่จำนวนเงิน
      ตั้งชื่อขึ้นต้นด้วย Enable เพื่อให้ BOOL_PREFIX จับได้เองและลงเป็น boolean —
      ไม่ใช่ numeric(12,2) ที่จะเก็บคำว่า 'true' ไม่ได้ · ชื่อที่ตรงกติกาดีกว่าข้อยกเว้นที่ต้องจำ */
@@ -473,7 +476,14 @@ const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', '
    * porting submitLeave/approveLeave; the director asked for the time to be kept). */
   'LEAVE_REQUEST.CreatedDate': 'timestamptz', 'LEAVE_REQUEST.Step1Date': 'timestamptz', 'LEAVE_REQUEST.Step2Date': 'timestamptz',
   // W4 3b (2026-11-11): nowStr_() 'yyyy-MM-dd HH:mm:ss' — the admin's slip list shows submittedAt; a date column dropped the time
-  'PAYMENT_SLIPS.SubmittedDate': 'timestamptz' };
+  'PAYMENT_SLIPS.SubmittedDate': 'timestamptz',
+  // W4 3d (2026-11-11): computePayroll writes new Date() — payrollDuplicates prints it to the minute and breaks a tie on it
+  'PAYROLL.GeneratedDate': 'timestamptz',
+  /* 🔴 W4 3d (2026-11-11): "…Deduct" read as money, so these two were numeric(12,2) — and they are the payroll screen's
+   * YES/NO tick boxes (#pSS checked → setPayrollConfig writes true; Payroll.gs pcBool_ reads 'YES'/'TRUE'/'1'). A
+   * numeric column refuses true and stores NOTHING, so every teacher with ประกันสังคม ticked would have been paid
+   * ฿750 too much the first month on Postgres, with the box showing unticked. Found by test_fast_route_payroll_live. */
+  'PAYROLL_CONFIG.SocialSecurityDeduct': 'boolean', 'PAYROLL_CONFIG.TaxDeduct': 'boolean' };
 
 function sqlType(col, sheet) {
   if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];

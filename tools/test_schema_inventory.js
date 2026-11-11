@@ -98,8 +98,11 @@ console.log('\n2) money is numeric, and the tool will not guess');
    * still may not DROP by accident, which is why this is pinned rather than bounded; it moved
    * because somebody decided it should, and the reason is written beside the column in
    * schema_inventory.js. */
-  eq('money columns are numeric(12,2), never float or text', pairs.size, 52);
-  /* 51 → 50 → 52 in one day, and each move is a decision with a reason beside the column:
+  eq('money columns are numeric(12,2), never float or text', pairs.size, 50);
+  /* 51 → 50 → 52 in one day, then 52 → 50 (2026-11-11), and each move is a decision with a reason beside the column:
+   *   −2  PAYROLL_CONFIG.SocialSecurityDeduct / .TaxDeduct left — they are TICK BOXES, not amounts. The test
+   *       below used to assert they were numeric; a numeric column stores the screen's `true` as nothing, so
+   *       ประกันสังคม was silently not deducted (found by tools/test_fast_route_payroll_live.js).
    *   −1  InsuranceSum left (see below) — a quotation from a document, not an amount we compute
    *   +2  OT_DAILY.FullAmount and .Discount arrived — seven OT columns were created at runtime and
    *       declared nowhere, so every OT discount this school has given had no column to migrate
@@ -142,9 +145,13 @@ console.log('\n2) money is numeric, and the tool will not guess');
    * payslip; each was found by auditing every column whose NAME looks like money against the list,
    * rather than by reading the list and believing it. */
   ['gross_income', 'total_deductions', 'daily_rate', 'diligence_attendance_amount',
-   'diligence_facebook_amount', 'social_security_deduct', 'tax_deduct', 'net_pay',
+   'diligence_facebook_amount', 'net_pay',
    'base_salary', 'holiday_bonus', 'training_cert_amount', 'adjustments_total'].forEach(c =>
     ok_(c + ' is numeric', money.indexOf(c) >= 0));
+
+  /* 🔴 THE TWO TICK BOXES ON THE PAYROLL SCREEN — named like deductions, holding yes/no. */
+  ['social_security_deduct', 'tax_deduct'].forEach(c =>
+    ok_('🔴 ' + c + ' is a yes/no (boolean), not money — numeric stored the tick as nothing', money.indexOf(c) < 0 && new RegExp('"' + c + '"[ ]+boolean').test(sql)));
 
   /* ...AND WHAT IS NOT MONEY, which matters just as much. MilkTotal and Water were in the money list
    * in the first draft: they are millilitres of milk and water a baby drank. A money type on a

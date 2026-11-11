@@ -146,7 +146,9 @@ async function viaHost(msg, who) {
       ['prepay',               PARENT, { studentId: 'STD-1', months: 3 }],
       ['issueBillsFor',        ADMIN,  { studentIds: ['STD-2'], month: THIS_MONTH, adminId: 'STF-A' }],
       ['generateMonthlyBills', ADMIN,  { month: NEXT_MONTH, adminId: 'STF-A' }],
-      ['setPayrollConfig',     ADMIN,  { staffId: 'STF-T', config: { PayType: 'daily', DailyRate: 520 } }]
+      /* SocialSecurityDeduct true: the payroll screen's tick box. It sat in a numeric column until 2026-11-11 and was stored as
+       * nothing — ฿750 of ประกันสังคม not deducted, the box unticked on reload (found by test_fast_route_payroll_live) */
+      ['setPayrollConfig',     ADMIN,  { staffId: 'STF-T', config: { PayType: 'daily', DailyRate: 520, SocialSecurityDeduct: true } }]
     ];
     const covered = new Set(), seen = {};
     for (const [action, who, payload] of CASES) {

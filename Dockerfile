@@ -59,6 +59,8 @@ COPY src/AttReq.gs              src/AttReq.gs
 COPY src/Password.gs            src/Password.gs
 # W4 3a: BillRun.gs — billRunLast / undoBillRun, the in-place undo of a bulk bill run
 COPY src/BillRun.gs             src/BillRun.gs
+# W4 3d: PayAdjust.gs — approvePayslip / adjustStaffPay / payAdjustHistory
+COPY src/PayAdjust.gs           src/PayAdjust.gs
 # W2 (2026-11-09): routes that send LINE run Line.gs's own linePushText_/notifyChannels_ — linePush_ is recorded, not called
 COPY src/Line.gs                src/Line.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
