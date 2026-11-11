@@ -31,8 +31,9 @@ console.log('\n1) 🔴 สิ่งที่ห้ามออกจากเค
   * loads them (Code.gs's own door), checked to hold no secret and already public in the repo. Two .gs
   * files the image still has no use for take their place, so the whitelist is still being tested.
   * (Certificate.gs was one of them until 2026-11-06, when routes.js began running certText — Slips.gs now;
-  * PaySlips.gs until 2026-11-10, when the late-fee rule needed paySlipSum_ — BillRun.gs now.) */
- 'src/Slips.gs', 'src/BillRun.gs', 'tools/test_bill_document.js', 'tools/pg_sync.js', 'design/receipt-sample.html',
+  * PaySlips.gs until 2026-11-10, when the late-fee rule needed paySlipSum_; BillRun.gs until 2026-11-11 (W4 3a) —
+  * Repair.gs now.) */
+ 'src/Slips.gs', 'src/Repair.gs', 'tools/test_bill_document.js', 'tools/pg_sync.js', 'design/receipt-sample.html',
  'docs/pdpa/02_ROPA.md', 'docs/WORKLOG.md', '.claude/settings.local.json', 'dist_pages/app.js'].forEach(f =>
   ok_('🔴 ไม่ถูกอัปโหลด: ' + f, !uploaded(f)));
 

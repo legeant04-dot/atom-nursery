@@ -268,9 +268,16 @@ async function handle(req, res, body) {
       if (both.length) return refuse('NOT_ON_FAST_HOST', 'คำขอนี้แก้ข้อมูลชุดเดียวกันสองทาง — ยังต้องทำบน Apps Script', { both });
       /* 🔴 WRITE_GUARD for rows a route deletes — the same rule the engine's saves get above: an identity or
        * money sheet never shrinks here, and no sheet loses more than 5 rows AND 25% in one request */
+      /* ...EXCEPT the in-place routes Apps Script itself keeps for exactly this (W4, 2026-11-11). BILLING may never
+       * shrink through a collection rewrite — but deleteBill and undoBillRun exist BECAUSE of that rule: they are the
+       * school's only legitimate way to remove a bill, each with its own checks (no money attached · the run the admin
+       * looked at · confirm). A route declares `shrinks` for the sheet it is that exception for; only a route that also
+       * declares `deletes` on it can delete a row there at all (routes.js), so nothing else rides along. */
+      const shrinkOk = new Set([].concat(...writers.map(x => ROUTES_PORT.has(x.a) ? ROUTES_PORT.shrinks(x.a) : [])));
       for (const s of routeSheets) {
         const dropped = routeWrites.filter(w => w.sheet === s && w.op === 'delete').length;
         if (!dropped) continue;
+        if (shrinkOk.has(s)) continue;
         const was = dropped + (raw[s] || []).length;
         if (GATE.noShrink(s) || (dropped > 5 && dropped > was * 0.25)) {
           return refuse('WRITE_GUARD', 'ยกเลิกการบันทึกชีต ' + s + ' เพื่อป้องกันข้อมูลหาย (' + was + ' → ' + (was - dropped) + ' แถว)');
