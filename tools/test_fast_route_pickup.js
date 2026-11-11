@@ -20,7 +20,7 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const ROUTES = require(path.join(__dirname, '..', 'server', 'routes.js'));
 delete process.env.ATOM_DB;
 const G = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave', 'Notify', 'Parent', 'Staff',
-  'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'PaySlips', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce', 'Demo']);
+  'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'PaySlips', 'Password', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce', 'Demo']);
 
 const SHEETS = [['MAIN', 'SCHOOL_CONFIG'], ['MAIN', 'PARENTS'], ['MAIN', 'STUDENTS'], ['MAIN', 'CLASSES'], ['HR', 'STAFF'], ['MAIN', 'HOLIDAYS'], ['MAIN', 'HOLIDAY_ATTEND'],
   ['MAIN', 'LEAVE_REQUEST_STD'], ['MAIN', 'CHECKIN_STUDENT'], ['MAIN', 'OT_DAILY'], ['MAIN', 'PAYMENT_SLIPS'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'USERS'], ['MAIN', 'LINE_RECIPIENTS'], ['MAIN', 'AUDIT_LOG']];
@@ -296,6 +296,44 @@ eq('...ลบ 17, 18, 19 · วันที่ 16 (ผ่านไปแล้�
 ok_('...ข้อความบอกช่วงวันที่ที่ยกเลิก', /17 – 2026-11-19 \(3 วัน\)/.test(r.host.line[0].messages[0].text));
 r = PC({ leaveId: 'LVS-0002' }, 'ยกเลิกใบลาวันเดียว');
 eq('...ลบ 1 แถว', [r.host.data.cancelled, !!lv('LVS-0002')], [1, false]);
+
+console.log('\n12) 💰 W4 · แอดมินแก้ค่ารับช้า: ส่วนลด · แก้เวลารับ · ยกเลิก/คืน (adminUpdateOT · adminCancelOT · adminRestoreOT)');
+{
+  const GATE = require(path.join(__dirname, '..', 'server', 'gate.js'));
+  const g = (a, role) => { try { GATE.identity(a, { otId: 'OT-20261110-S04' }, { uid: 'U-x', role, linkedId: role === 'Parent' ? 'PAR-04' : 'STF-T' }, {}); return 'ok'; } catch (e) { return e.apiCode || e.message; } };
+  eq('🔴 ครู / ผู้ปกครองเรียกเครื่องมือแอดมิน → NO_PERMISSION ที่ประตู', ['adminUpdateOT', 'adminCancelOT', 'adminRestoreOT'].map(a => g(a, 'Teacher')).concat(g('adminUpdateOT', 'Parent')), ['NO_PERMISSION', 'NO_PERMISSION', 'NO_PERMISSION', 'NO_PERMISSION']);
+}
+const UO = (p, label) => step(Object.assign({ staffId: 'STF-A' }, p), label, 'adminUpdateOT', 'handleAdminUpdateOT');
+const CO = (p, label) => step(Object.assign({ staffId: 'STF-A' }, p), label, 'adminCancelOT', 'handleAdminCancelOT');
+const RO = (p, label) => step(Object.assign({ staffId: 'STF-A' }, p), label, 'adminRestoreOT', 'handleAdminRestoreOT');
+const otRowOf = id => db.OT_DAILY.find(x => x.OTID === id) || {};
+at('2026-11-18', '10:00');
+r = UO({ otId: 'OT-20261110-S04', discount: 50, discountReason: 'ลดให้ครั้งแรก' }, '💰 ส่วนลด 50 จาก 150');
+{ const o = otRowOf('OT-20261110-S04');
+  eq('💰 เต็ม 150 · ลด 50 · เก็บ 100 · ใคร/ทำไมถูกเก็บ', [o.FullAmount, o.Discount, o.Amount, o.DiscountBy, o.DiscountReason, o.Status], [150, 50, 100, 'STF-A', 'ลดให้ครั้งแรก', 'UNPAID']); }
+r = UO({ otId: 'OT-20261110-S09', pickupTime: '18:00' }, '💰 แก้เวลารับน้องไอ 10/11 เป็น 18:00 (คิดจากวันของแถว)');
+{ const o = otRowOf('OT-20261110-S09');
+  eq('💰 เลิก 12:00 → 360 นาที → 6 ชม. = 600', [o.PickupTime, o.LateMinutes, o.Hours, o.FullAmount, o.Amount], ['18:00', 360, 6, 600, 600]); }
+r = UO({ otId: 'OT-20261110-S04', amount: '0', discountReason: 'ยกเว้นทั้งหมด' }, '💰 "จ่าย 0" = ยกเว้นทั้งหมด');
+{ const o = otRowOf('OT-20261110-S04');
+  eq('💰 ลด 150 · เก็บ 0 → PAID (ไม่มีอะไรต้องเก็บ) · วันที่ปิด', [o.Discount, o.Amount, o.Status, o.PaidDate], [150, 0, 'PAID', '2026-11-18']); }
+r = UO({ otId: 'OT-20261110-S12', discount: 10 }, '🔴 แก้รายการที่ชำระแล้ว');
+eq('🔴 ...ALREADY_PAID', [r.host.code, r.host.ops], ['ALREADY_PAID', 0]);
+r = UO({ otId: 'OT-20261112-S01' }, '🔴 ไม่มีอะไรให้แก้');
+eq('🔴 ...BAD_INPUT', r.host.code, 'BAD_INPUT');
+r = UO({ otId: 'OT-29991231-S01', discount: 1 }, '🔴 ไม่มีรายการนี้');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+r = UO({ otId: 'OT-20261110-S13', discount: 50, discountReason: 'ลดครึ่ง' }, '💰 ส่วนลดรายการที่มีสลิปรอตรวจ 100');
+{ const o = otRowOf('OT-20261110-S13');
+  eq('💰 เก็บ 50 · จัดสถานะตามสลิปใหม่ (รอตรวจ 100)', [o.Amount, o.Status, o.SlipAmount], [50, 'PENDING_VERIFY', 100]); }
+r = CO({ otId: 'OT-20261113-S02' }, 'ยกเลิกค่ารับช้าน้องบี 13/11');
+eq('...CANCELLED', otRowOf('OT-20261113-S02').Status, 'CANCELLED');
+r = CO({ otId: 'OT-20261110-S04' }, '🔴 ยกเลิกรายการที่ PAID');
+eq('🔴 ...ALREADY_PAID', r.host.code, 'ALREADY_PAID');
+r = RO({ otId: 'OT-20261113-S02' }, 'คืนรายการที่ยกเลิก');
+eq('...UNPAID อีกครั้ง', otRowOf('OT-20261113-S02').Status, 'UNPAID');
+r = RO({ otId: 'OT-20261112-S01' }, '🔴 คืนรายการที่ไม่ได้ยกเลิก');
+eq('🔴 ...BAD_INPUT', r.host.code, 'BAD_INPUT');
 
 console.log('\n13) 🔴 กล่องทราย');
 {

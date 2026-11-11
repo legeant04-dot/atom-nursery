@@ -288,7 +288,88 @@ r = step(SR, SRF, { staffId: 'STF-U', type: 'IN', date: '2026-11-16', time: '08:
 eq('🔴 ...ATR-1000 ไม่ใช่ ATR-000', r.host.data && r.host.data.reqId, 'ATR-1000');
 r = step(SR, SRF, { staffId: 'STF-U', type: 'IN', date: '2026-11-16', time: '08:06' }, 'คำขอใบที่ 1001');
 eq('🔴 ...ATR-1001 (ไม่ซ้ำ)', r.host.data && r.host.data.reqId, 'ATR-1001');
-console.log('\n9) 🔴 กล่องทราย');
+console.log('\n10) 💰 W4 · แอดมิน: ยืนยันคำขอลงเวลา (เขียนเวลาจริง) · แก้เวลาครูโดยตรง');
+const CT = 'confirmTimeRequest', CTF = 'handleConfirmTimeRequest', ES = 'editStaffAttendance', ESF = 'handleEditStaffAttendance';
+const dayRow = (sid, d) => db.CHECKIN_STAFF.filter(x => x.StaffID === sid && String(x.Date).slice(0, 10) === d);
+at('2026-11-17', '11:00');
+r = step(CT, CTF, { staffId: 'STF-L', reqId: 'ATR-001', decision: 'approve' }, '🔴 หัวหน้าเรียกขั้นแอดมิน');
+eq('🔴 ...NO_PERMISSION', [r.host.code, r.host.ops], ['NO_PERMISSION', 0]);
+r = step(CT, CTF, { staffId: 'STF-A', reqId: 'ATR-001', decision: 'approve' }, '💰 แอดมินอนุมัติ ATR-001 (ครูยู เข้า 16/11 07:55)');
+{ const x = dayRow('STF-U', '2026-11-16');
+  eq('💰 แถวเดิมของวันนั้นถูกแก้: เข้า 07:55 · ไม่สาย · ✍️ InManual · ออก 18:35 เดิมคงอยู่', [x.length, x[0].CheckIn, x[0].LateMinutes, x[0].InManual, x[0].CheckOut, x[0].Status], [1, '07:55', 0, 'YES', '18:35', 'OUT']); }
+eq('...คำขอ APPROVED · เวลาที่อนุมัติ · ผู้ขอได้กระดิ่ง', [req('ATR-001').Status, req('ATR-001').Step2At, db.ADMIN_INBOX.filter(x => x.StaffID === 'STF-U').length > 0], ['APPROVED', '2026-11-17 11:00:00', true]);
+r = step(CT, CTF, { staffId: 'STF-A', reqId: 'ATR-001', decision: 'approve' }, '🔴 อนุมัติซ้ำ');
+eq('🔴 ...BAD_STATE', r.host.code, 'BAD_STATE');
+r = step(CT, CTF, { staffId: 'STF-A', reqId: 'ATR-002', decision: 'approve' }, '💰 อนุมัติ ATR-002 (หัวหน้า ออก 16/11 18:10 · วันนั้นไม่มีแถว)');
+{ const x = dayRow('STF-L', '2026-11-16');
+  eq('💰 สร้างแถวใหม่: ออก 18:10 · 70 นาที → OT 1 ชม. · OutManual', [x.length, x[0] && x[0].CheckOut, x[0] && x[0].OTHours, x[0] && x[0].OutManual, x[0] && x[0].Status], [1, '18:10', 1, 'YES', 'OUT']); }
+r = step(CT, CTF, { staffId: 'STF-A', reqId: 'ATR-1000', decision: 'reject', reason: 'ซ้ำกับ ATR-001' }, 'ไม่อนุมัติ ATR-1000 ที่ยังค้างที่หัวหน้า');
+eq('...REJECTED · ขั้นหัวหน้าบันทึกว่าแอดมินตัดสินแทน · ไม่เขียนเวลา', [req('ATR-1000').Status, req('ATR-1000').Step1By, req('ATR-1000').DecisionNote, dayRow('STF-U', '2026-11-16')[0].CheckIn],
+  ['REJECTED', 'แอดมินเอ (แอดมินอนุมัติแทน)', 'ซ้ำกับ ATR-001', '07:55']);
+
+/* a day that was duplicated by the old string-slice bug — both sides carry two rows for STF-W on 16/11 */
+G.run(function () { appendObject_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF'), { Date: '2026-11-16', StaffID: 'STF-W', CheckIn: '08:30', Status: 'IN', LateMinutes: 25 }); return ''; });
+db.CHECKIN_STAFF.push(Object.assign({ __id: 'r' + (nextId++) }, gasState().CHECKIN_STAFF.slice(-1)[0]));
+ok_('มีแถวซ้ำของครูดับเบิลยู 16/11 สองแถว', dayRow('STF-W', '2026-11-16').length === 2);
+r = step(ES, ESF, { staffId: 'STF-L', targetId: 'STF-W', date: '2026-11-16', checkIn: '08:00' }, '🔴 หัวหน้าแก้เวลาครู');
+eq('🔴 ...NO_PERMISSION', r.host.code, 'NO_PERMISSION');
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-W', date: '2026-11-18', checkIn: '08:00' }, '🔴 วันที่ยังมาไม่ถึง');
+eq('🔴 ...FUTURE_DATE', r.host.code, 'FUTURE_DATE');
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-W', date: '2026-11-16', checkIn: '8 โมง' }, '🔴 รูปแบบเวลาผิด');
+eq('🔴 ...BAD_TIME', r.host.code, 'BAD_TIME');
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-W', date: '2026-11-16' }, '🔴 ไม่มีอะไรให้แก้');
+eq('🔴 ...BAD_INPUT', r.host.code, 'BAD_INPUT');
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-W', date: '2026-11-16', checkIn: '08:12', remark: 'ลืมกด' }, '💰 แอดมินแก้เวลาเข้า 16/11 เป็น 08:12');
+{ const x = dayRow('STF-W', '2026-11-16');
+  eq('💰 แถวซ้ำถูกรวมเหลือแถวเดียว · สาย 7 (08:00 + 5) · ออก 20:10 เดิม OT 3 คงอยู่ · ผู้แก้/เหตุผล', [r.host.data.healed, x.length, x[0].CheckIn, x[0].LateMinutes, x[0].CheckOut, x[0].OTHours, x[0].EditedBy, x[0].EditNote],
+    [1, 1, '08:12', 7, '20:10', 3, 'แอดมินเอ', 'ลืมกด']); }
+eq('...เจ้าตัวและแอดมินได้กระดิ่ง', db.ADMIN_INBOX.slice(-2).map(x => x.StaffID || '(admin)'), ['STF-W', '(admin)']);
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-W', date: '2026-11-16', checkOut: '' }, '💰 ลบเวลาออก');
+eq('💰 ไม่มีเวลาออก → OT ว่าง · สถานะ IN', [dayRow('STF-W', '2026-11-16')[0].OTHours, dayRow('STF-W', '2026-11-16')[0].Status], ['', 'IN']);
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-W', date: '2026-11-16', checkIn: '' }, '💰 ลบเวลาเข้าด้วย = วันนี้ไม่ได้ทำงาน');
+eq('💰 แถวของวันนั้นถูกลบ', [r.host.data.removed, dayRow('STF-W', '2026-11-16').length], [true, 0]);
+r = step(ES, ESF, { staffId: 'STF-A', targetId: 'STF-T', date: '2026-11-14', checkIn: '08:50' }, '💰 แก้เวลาเข้าวัน Big Cleaning 14/11 เป็น 08:50');
+eq('💰 วัดจาก 08:30 ของวันนั้น + ผ่อนผัน 5 → สาย 15', dayRow('STF-T', '2026-11-14')[0].LateMinutes, 15);
+
+console.log('\n11) 💰 W4 · แอดมินจัดการ OT ครู: เพิ่ม · OT วันหยุด · แก้ · ลบ');
+const AO = 'adminAddOT', AOF = 'handleAdminAddOT', AH = 'adminAddHolidayOT', AHF = 'handleAdminAddHolidayOT', EO = 'adminEditOT', EOF_ = 'handleAdminEditOT', DO = 'adminDeleteOT', DOF = 'handleAdminDeleteOT';
+const lastOt = () => db.OT_RECORDS.slice(-1)[0] || {};
+at('2026-11-17', '12:00');
+r = step(AO, AOF, { staffId: 'STF-L', targetStaffId: 'STF-T', hours: 2 }, '🔴 หัวหน้าเพิ่ม OT');
+eq('🔴 ...NO_PERMISSION', [r.host.code, r.host.ops], ['NO_PERMISSION', 0]);
+r = step(AO, AOF, { staffId: 'STF-A', targetStaffId: 'STF-T', hours: 0 }, '🔴 ไม่ระบุชั่วโมง');
+eq('🔴 ...BAD_INPUT', r.host.code, 'BAD_INPUT');
+r = step(AO, AOF, { staffId: 'STF-A', targetStaffId: 'STF-X', hours: 2 }, '🔴 ไม่มีพนักงานคนนี้');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+r = step(AO, AOF, { staffId: 'STF-A', targetStaffId: 'STF-T', hours: 2, date: '2026-11-16', note: 'อยู่ช่วยงานเย็น' }, '💰 แอดมินเพิ่ม OT 2 ชม. ให้ครูที (อัตราตอนนี้ 120)');
+const addedId = lastOt().OTRecordID;
+eq('💰 2 × 120 = 240 · APPROVED ทันที · รหัสต่อจากเลขสูงสุด', [lastOt().StaffID, lastOt().Amount, lastOt().Rate, lastOt().Status, lastOt().Month, /^OTR-\d{4}$/.test(addedId)], ['STF-T', 240, 120, 'APPROVED', '2026-11', true]);
+r = step(AO, AOF, { staffId: 'STF-A', targetStaffId: 'STF-U', hours: 1.5, amount: '200', date: '2026-11-16' }, '💰 ระบุยอดเอง 200');
+eq('💰 ยอดที่พิมพ์ชนะ', lastOt().Amount, 200);
+r = step(AH, AHF, { staffId: 'STF-A', staffIds: ['STF-T', 'STF-U', 'STF-T'], date: '2026-11-22', amount: 600, note: 'ทำความสะอาดใหญ่วันอาทิตย์' }, '💰 OT วันหยุด อาทิตย์ 22/11 · ติ๊กครูทีซ้ำ');
+{ const h = db.OT_RECORDS.filter(x => String(x.Date).slice(0, 10) === '2026-11-22');
+  eq('💰 2 แถว (ซ้ำไม่จ่ายซ้ำ) · 600 เหมาจ่าย · Kind HOLIDAY · เจ้าตัวได้กระดิ่ง', [r.host.data.count, h.length, h.map(x => x.Amount), h.map(x => x.Kind), db.ADMIN_INBOX.filter(x => /OT วันหยุด 2026-11-22/.test(x.Text)).map(x => x.StaffID)],
+    [2, 2, [600, 600], ['HOLIDAY', 'HOLIDAY'], ['STF-T', 'STF-U']]); }
+r = step(AH, AHF, { staffId: 'STF-A', staffIds: ['STF-T'], date: '2026-11-17', amount: 600, note: 'x' }, '🔴 OT วันหยุดในวันทำงาน');
+eq('🔴 ...NOT_A_HOLIDAY', r.host.code, 'NOT_A_HOLIDAY');
+r = step(AH, AHF, { staffId: 'STF-A', staffIds: ['STF-T'], date: '2026-11-22', amount: 600, note: '  ' }, '🔴 ไม่เขียนรายละเอียด');
+eq('🔴 ...BAD_INPUT', r.host.code, 'BAD_INPUT');
+const holId = db.OT_RECORDS.find(x => String(x.Date).slice(0, 10) === '2026-11-22' && x.StaffID === 'STF-T').OTRecordID;
+r = step(EO, EOF_, { staffId: 'STF-A', otId: holId, hours: 3 }, '💰 แก้ชั่วโมงของ OT วันหยุด');
+eq('💰 เหมาจ่าย 600 ไม่ถูกคิดใหม่เป็นชั่วโมง × อัตรา', db.OT_RECORDS.find(x => x.OTRecordID === holId).Amount, 600);
+r = step(EO, EOF_, { staffId: 'STF-A', otId: holId, date: '2026-11-18' }, '🔴 ย้าย OT วันหยุดไปวันทำงาน');
+eq('🔴 ...NOT_A_HOLIDAY', r.host.code, 'NOT_A_HOLIDAY');
+r = step(EO, EOF_, { staffId: 'STF-A', otId: addedId, hours: 3, note: 'แก้เป็น 3 ชม.' }, '💰 แก้ OT รายชั่วโมงเป็น 3 ชม.');
+eq('💰 3 × 120 = 360', [db.OT_RECORDS.find(x => x.OTRecordID === addedId).Amount, db.OT_RECORDS.find(x => x.OTRecordID === addedId).Note], [360, 'แก้เป็น 3 ชม.']);
+r = step(EO, EOF_, { staffId: 'STF-A', otId: addedId, date: '2026-12-01' }, 'ย้ายไปเดือนหน้า');
+eq('...Month ตามวันที่ใหม่', db.OT_RECORDS.find(x => x.OTRecordID === addedId).Month, '2026-12');
+const n0 = db.OT_RECORDS.length;
+r = step(DO, DOF, { staffId: 'STF-A', otId: addedId }, '💰 ลบ OT ที่เพิ่ม');
+eq('💰 หายไป 1 แถว', [db.OT_RECORDS.length, !!db.OT_RECORDS.find(x => x.OTRecordID === addedId)], [n0 - 1, false]);
+r = step(DO, DOF, { staffId: 'STF-A', otId: addedId }, '🔴 ลบซ้ำ');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+
+console.log('\n12) 🔴 กล่องทราย');
 {
   ROUTES.setClock(null);
   ok_('staffCheckin ไม่มีสิทธิ์ส่ง LINE · staffCheckout มี', !ROUTES.sendsLine(IN) && ROUTES.sendsLine(OUT));
