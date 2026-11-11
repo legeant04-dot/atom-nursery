@@ -131,7 +131,7 @@ route ไหนที่ sandbox พบว่าแตะ Drive/รูป/เง
 ✅ รับ-ส่งเด็ก `parentCheckin` · `staffStudentCheckin` (💰 ค่ารับช้า · offline 154 · staging 63) และอนุมัติ OT `approveOT` · `confirmOT`
 (offline 187 · staging 97) — deploy rev 00023/00024 · กล่องทรายได้ `keepOnRefusal` (audit ของการรับกลับนอกรัศมีอยู่ต่อเหมือน Apps Script) ·
 ✅ ขอลงเวลา `submitTimeRequest` · `approveTimeRequest` · ผู้ปกครองแก้/ยกเลิกใบลา `parentEditLeave` · `parentCancelLeave` ·
-ครูแก้เวลามา-กลับ `editStudentAttendance` (route → engine) · `holidayAttendAdd` (engine) — ยังไม่ deploy · **W3 ครบ** (14 ตัว) ·
+ครูแก้เวลามา-กลับ `editStudentAttendance` (route → engine) · `holidayAttendAdd` (engine) — deploy rev 00025 · GAS @415 · **W3 ครบ** (14 ตัว) ·
 ➡️ W4 (ผอ. 2026-11-10: งานแอดมินไป W4): confirmTimeRequest · holidayAttendSet · adminAddOT/AddHolidayOT/EditOT/DeleteOT · adminUpdateOT/Cancel/Restore · editStaffAttendance · cancelLeave
 
 ลงเวลาครู (`staffCheckin`/`staffCheckout`) · ผู้ปกครองเช็คอิน · ครูเช็คอินแทน · ยื่น/อนุมัติใบลา ·
