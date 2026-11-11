@@ -87,6 +87,11 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
   if (/AUDIT_LOG$/.test(name)) { const s = String(o.Timestamp || '');
     const t = Date.parse(/Z$|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + '+07:00');
     o.Timestamp = isFinite(t) ? 'min:' + Math.floor(t / 60000) : s; }
+  /* OT_DAILY.DiscountAt is written as a Date (new Date()): the harness hands it back as ISO (…Z), Postgres as the
+   * school's wall clock — the same instant, compared as one */
+  if (name === 'OT_DAILY' && o.DiscountAt) { const s = String(o.DiscountAt);
+    const t = Date.parse(/Z$|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + '+07:00');
+    o.DiscountAt = isFinite(t) ? 'min:' + Math.floor(t / 60000) : s; }
   Object.keys(o).forEach(k => {
     if (o[k] == null) o[k] = '';
     if (typeof o[k] === 'number' || typeof o[k] === 'boolean') o[k] = String(o[k]);
@@ -104,7 +109,7 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
 
     delete process.env.ATOM_DB;
     const H = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave',
-      'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'PaySlips', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce']);
+      'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'PaySlips', 'Password', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce']);
     const start = {};
     for (const [, s] of SHEETS.concat(SEEDED)) start[s] = await PG.readSheet(c, TENANT, s);
     H.g.__FIX = JSON.stringify(start); H.g.__SHEETS = JSON.stringify(SHEETS.concat(SEEDED));
@@ -268,6 +273,24 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
       ok_('💰 ค่ารับช้ายกเลิก (แถวยังอยู่ · 0 บาท) · ไม่แจ้งเงิน', o.Status === 'CANCELLED' && Number(o.Amount) === 0 && r.got.__line.length === 0); }
     r = await EA('ลบเวลากลับออก (ยังไม่ได้รับ)', { studentId: 'S04', date: '2026-11-17', checkOut: '' }, T);
     ok_('...แถว OUT ของวันนั้นถูกลบ · IN ยังอยู่', (await rows('S04')).filter(x => String(x.Date).slice(0, 10) === '2026-11-17').map(x => x.Type).join() === 'IN');
+
+    console.log('\n7) 💰 W4 · แอดมินแก้ค่ารับช้า (ใน Postgres)');
+    const A = tokenFor('Admin', 'STF-A', 'U-A');
+    const otOf = async id => (await PG.readSheet(c, TENANT, 'OT_DAILY')).find(x => x.OTID === id) || {};
+    at('2026-11-18', '10:00');
+    { const o = await viaHost({ action: 'adminUpdateOT', payload: { otId: 'OT-20261110-S04', discount: 50 } }, T);
+      ok_('🔴 ครูให้ส่วนลด → ' + (o.error && o.error.code), o.ok === false && o.error.code === 'NO_PERMISSION'); }
+    r = await step('💰 ส่วนลด 50 จาก 150', { staffId: 'STF-A', otId: 'OT-20261110-S04', discount: 50, discountReason: 'ลดให้ครั้งแรก' }, A, 'adminUpdateOT', 'handleAdminUpdateOT');
+    { const o = await otOf('OT-20261110-S04');
+      ok_('💰 Postgres: เต็ม 150 · ลด 50 · เก็บ 100 · DiscountAt มีวันเวลา', Number(o.FullAmount) === 150 && Number(o.Discount) === 50 && Number(o.Amount) === 100 && /2026-11-18/.test(String(o.DiscountAt))); }
+    r = await step('💰 แก้เวลารับน้องไอ 10/11 เป็น 18:00', { staffId: 'STF-A', otId: 'OT-20261110-S09', pickupTime: '18:00' }, A, 'adminUpdateOT', 'handleAdminUpdateOT');
+    ok_('💰 Postgres: 6 ชม. = 600', Number((await otOf('OT-20261110-S09')).Amount) === 600);
+    r = await step('ยกเลิกค่ารับช้าน้องไอ', { staffId: 'STF-A', otId: 'OT-20261110-S09' }, A, 'adminCancelOT', 'handleAdminCancelOT');
+    r = await step('คืนรายการ', { staffId: 'STF-A', otId: 'OT-20261110-S09' }, A, 'adminRestoreOT', 'handleAdminRestoreOT');
+    ok_('...UNPAID อีกครั้ง', (await otOf('OT-20261110-S09')).Status === 'UNPAID');
+    r = await step('💰 "จ่าย 0" = ยกเว้นทั้งหมด', { staffId: 'STF-A', otId: 'OT-20261110-S04', amount: '0' }, A, 'adminUpdateOT', 'handleAdminUpdateOT');
+    { const o = await otOf('OT-20261110-S04');
+      ok_('💰 Postgres: PAID · เก็บ 0 · PaidDate 2026-11-18', o.Status === 'PAID' && Number(o.Amount) === 0 && String(o.PaidDate).slice(0, 10) === '2026-11-18'); }
   } finally {
     ROUTES.setClock(null);
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

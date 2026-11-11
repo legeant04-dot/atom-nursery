@@ -245,6 +245,39 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
       ok_('...Postgres: PENDING_ADMIN · Step1At มีวันและเวลา (timestamptz)', q.Status === 'PENDING_ADMIN' && /2026-11-17.10:30/.test(String(q.Step1At))); }
     r = await step('หัวหน้าไม่อนุมัติ ATR-002 พร้อมเหตุผล', 'approveTimeRequest', 'handleApproveTimeRequest', { reqId: 'ATR-002', decision: 'reject', reason: 'วันนั้นออก 17:00' }, L);
     ok_('...REJECTED · เหตุผลอยู่ใน Postgres · จด LINE ถึงผู้ขอ 0 (ไม่มี LineUID) · กระดิ่ง 1', ((await reqs()).find(x => x.ReqID === 'ATR-002') || {}).DecisionNote === 'วันนั้นออก 17:00' && r.got.__line.length === 0);
+
+    console.log('\n6) 💰 W4 · แอดมินยืนยันคำขอลงเวลา · แก้เวลาครู (ใน Postgres)');
+    const ck16 = async (sid, d) => (await PG.readSheet(c, TENANT, 'CHECKIN_STAFF')).filter(x => x.StaffID === sid && String(x.Date).slice(0, 10) === d);
+    at('2026-11-17', '11:00');
+    { const o = await viaHost({ action: 'confirmTimeRequest', payload: { staffId: 'STF-A', reqId: 'ATR-001', decision: 'approve' } }, L);
+      ok_('🔴 หัวหน้าเรียกขั้นแอดมิน (แม้ส่ง staffId แอดมิน) → ' + (o.error && o.error.code) + ' ไม่บันทึก', o.ok === false && (await ck16('STF-U', '2026-11-16')).length === 0); }
+    r = await step('💰 แอดมินอนุมัติ ATR-001 (ครูยู เข้า 16/11 07:55)', 'confirmTimeRequest', 'handleConfirmTimeRequest', { staffId: 'STF-A', reqId: 'ATR-001', decision: 'approve' }, A);
+    { const x = await ck16('STF-U', '2026-11-16');
+      ok_('💰 Postgres: แถวใหม่ เข้า 07:55 · ไม่สาย · InManual YES', x.length === 1 && String(x[0].CheckIn).slice(0, 5) === '07:55' && Number(x[0].LateMinutes) === 0 && x[0].InManual === 'YES'); }
+    r = await step('💰 แอดมินแก้เวลาเข้า 10/11 ของครูยูเป็น 08:00', 'editStaffAttendance', 'handleEditStaffAttendance', { staffId: 'STF-A', targetId: 'STF-U', date: '2026-11-10', checkIn: '08:00', remark: 'มาก่อนแต่ GPS ช้า' }, A);
+    { const x = await ck16('STF-U', '2026-11-10');
+      ok_('💰 Postgres: สาย 15 → 0 · ออก 18:53 / OT 2 เดิมคงอยู่ · EditedBy', x.length === 1 && Number(x[0].LateMinutes) === 0 && String(x[0].CheckOut).slice(0, 5) === '18:53' && Number(x[0].OTHours) === 2 && x[0].EditedBy === 'แอดมินเอ'); }
+    r = await step('💰 แอดมินลบทั้งสองเวลาของ 16/11 = วันที่ไม่ได้ทำงาน', 'editStaffAttendance', 'handleEditStaffAttendance', { staffId: 'STF-A', targetId: 'STF-U', date: '2026-11-16', checkIn: '', checkOut: '' }, A);
+    ok_('💰 Postgres: แถวของวันนั้นถูกลบ', (await ck16('STF-U', '2026-11-16')).length === 0 && r.got.data && r.got.data.removed === true);
+
+    console.log('\n7) 💰 W4 · แอดมินจัดการ OT ครู (ใน Postgres)');
+    const otRows = async () => PG.readSheet(c, TENANT, 'OT_RECORDS');
+    at('2026-11-17', '12:00');
+    { const o = await viaHost({ action: 'adminAddOT', payload: { staffId: 'STF-A', targetStaffId: 'STF-T', hours: 2 } }, L);
+      ok_('🔴 หัวหน้าเพิ่ม OT → ' + (o.error && o.error.code), o.ok === false && o.error.code === 'NO_PERMISSION'); }
+    r = await step('💰 แอดมินเพิ่ม OT 2 ชม. ให้ครูที (อัตรา 120)', 'adminAddOT', 'handleAdminAddOT', { staffId: 'STF-A', targetStaffId: 'STF-T', hours: 2, date: '2026-11-16', note: 'อยู่ช่วยงานเย็น' }, A);
+    const added = (await otRows()).slice(-1)[0] || {};
+    ok_('💰 Postgres: 240.00 · APPROVED · Month 2026-11', Number(added.Amount) === 240 && added.Status === 'APPROVED' && added.Month === '2026-11');
+    r = await step('💰 OT วันหยุด อาทิตย์ 22/11 (ติ๊กซ้ำ)', 'adminAddHolidayOT', 'handleAdminAddHolidayOT', { staffId: 'STF-A', staffIds: ['STF-T', 'STF-U', 'STF-T'], date: '2026-11-22', amount: 600, note: 'ทำความสะอาดใหญ่' }, A);
+    { const h = (await otRows()).filter(x => String(x.Date).slice(0, 10) === '2026-11-22');
+      ok_('💰 Postgres: 2 แถว · 600 · Kind HOLIDAY', h.length === 2 && h.every(x => Number(x.Amount) === 600 && x.Kind === 'HOLIDAY')); }
+    const hol = (await otRows()).find(x => String(x.Date).slice(0, 10) === '2026-11-22' && x.StaffID === 'STF-T');
+    r = await step('💰 แก้ชั่วโมง OT วันหยุด', 'adminEditOT', 'handleAdminEditOT', { staffId: 'STF-A', otId: hol.OTRecordID, hours: 3 }, A);
+    ok_('💰 เหมาจ่าย 600 คงเดิม', Number(((await otRows()).find(x => x.OTRecordID === hol.OTRecordID) || {}).Amount) === 600);
+    r = await step('💰 แก้ OT รายชั่วโมงเป็น 3 ชม.', 'adminEditOT', 'handleAdminEditOT', { staffId: 'STF-A', otId: added.OTRecordID, hours: 3 }, A);
+    ok_('💰 3 × 120 = 360', Number(((await otRows()).find(x => x.OTRecordID === added.OTRecordID) || {}).Amount) === 360);
+    r = await step('💰 ลบ OT ที่เพิ่ม', 'adminDeleteOT', 'handleAdminDeleteOT', { staffId: 'STF-A', otId: added.OTRecordID }, A);
+    ok_('💰 หายจาก Postgres', !(await otRows()).find(x => x.OTRecordID === added.OTRecordID));
   } finally {
     ROUTES.setClock(null);
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

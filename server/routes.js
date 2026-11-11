@@ -180,6 +180,49 @@ const PORTED = {
     appends: ['ATTENDANCE_REQUEST', 'ADMIN_INBOX'], line: true },
   approveTimeRequest: { fn: 'handleApproveTimeRequest', reads: ['STAFF', 'ATTENDANCE_REQUEST', 'ADMIN_INBOX'],
     writes: { ATTENDANCE_REQUEST: ['Step1By', 'Step1Status', 'Status', 'Step1At', 'DecisionNote'] }, appends: ['ADMIN_INBOX'], line: true },
+  /* ═══ W4 · group 1 — the ADMIN's decisions on staff time (docs/FAST_HOST_WRITES_PLAN.md, 2026-11-11) ════════
+   * 💰 Both write CHECKIN_STAFF, which decides LateMinutes (เบี้ยขยัน) and OTHours. Admin only (Code.gs ADMIN_ONLY).
+   *   confirmTimeRequest   step 2 of ขอลงเวลา: approve → arApply_ writes the requested time into that day's row
+   *                        (created if absent), re-measured against THAT day's hours (staffDayHours_), flagged
+   *                        In/OutManual; duplicate rows for the day collapsed (deleted bottom-up) · reject → only
+   *                        the request · settling one still with the head teacher records "แอดมินอนุมัติแทน"
+   *                        · the requester told (staff.approval)
+   *   editStaffAttendance  the admin types or CLEARS either half; both cleared deletes the day; late/OT re-derived;
+   *                        EditedBy/At/Note on the row, HR audit, the person and the admins told
+   * Proven by section 10 of tools/test_fast_route_checkin.js and its _live twin. */
+  confirmTimeRequest: { fn: 'handleConfirmTimeRequest',
+    reads: ['STAFF', 'ATTENDANCE_REQUEST', 'CHECKIN_STAFF', 'WORK_SCHEDULE', 'STAFF_GROUPS', 'HOLIDAYS', 'OT_RECORDS', 'ADMIN_INBOX'],
+    writes: { ATTENDANCE_REQUEST: ['Step1By', 'Step1Status', 'Step1At', 'Step2By', 'Step2Status', 'Step2At', 'Status', 'DecisionNote'],
+      CHECKIN_STAFF: ['CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status', 'InManual', 'OutManual'] },
+    appends: ['CHECKIN_STAFF', 'ADMIN_INBOX'], deletes: ['CHECKIN_STAFF'], line: true },
+  editStaffAttendance: { fn: 'handleEditStaffAttendance',
+    reads: ['STAFF', 'CHECKIN_STAFF', 'WORK_SCHEDULE', 'STAFF_GROUPS', 'HOLIDAYS', 'OT_RECORDS', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status', 'InManual', 'OutManual', 'EditedBy', 'EditedAt', 'EditNote'] },
+    appends: ['CHECKIN_STAFF', 'ADMIN_INBOX'], deletes: ['CHECKIN_STAFF'], line: true },
+  /* ═══ W4 · group 2 — the ADMIN's OT tools (admin only, Code.gs ADMIN_ONLY) ═══════════════════════════════════
+   * 💰 STAFF OT (src/OtStaff.gs) → OT_RECORDS, which only APPROVED rows reach the salary from:
+   *   adminAddOT         an already-approved row, hours × otRateForStaff_ unless an amount is typed
+   *   adminAddHolidayOT  OT วันหยุด: one APPROVED lump-sum row per person (ticked twice = once), only on a closed
+   *                      day (assertHolidayDate_), each person's own 🔔 told
+   *   adminEditOT        hours re-priced (a HOLIDAY lump sum never is) · amount · note · date (a holiday row stays
+   *                      on a closed day)
+   *   adminDeleteOT      the row, in place
+   * 💰 A CHILD'S LATE-PICKUP CHARGE (src/OT.gs) → OT_DAILY:
+   *   adminUpdateOT      correct the pick-up time (re-computed on the row's OWN day) and/or a goodwill discount
+   *                      (FullAmount − Discount = Amount; who/why/when kept; all waived = PAID) · PAID rows locked ·
+   *                      audit · a row with slips is re-settled (paySlipRecompute_ — that writes VerifiedStatus,
+   *                      not a Postgres column yet: such a call is refused here and runs on Apps Script)
+   *   adminCancelOT / adminRestoreOT   CANCELLED ⇄ UNPAID; PAID never
+   * Proven by section 11 of tools/test_fast_route_checkin.js · section 13 of test_fast_route_pickup.js · _live twins. */
+  adminAddOT: { fn: 'handleAdminAddOT', reads: ['STAFF', 'OT_RECORDS'], appends: ['OT_RECORDS'] },
+  adminAddHolidayOT: { fn: 'handleAdminAddHolidayOT', reads: ['STAFF', 'OT_RECORDS', 'HOLIDAYS', 'ADMIN_INBOX'], appends: ['OT_RECORDS', 'ADMIN_INBOX'] },
+  adminEditOT: { fn: 'handleAdminEditOT', reads: ['STAFF', 'OT_RECORDS', 'HOLIDAYS'],
+    writes: { OT_RECORDS: ['Hours', 'Amount', 'Note', 'Date', 'Month'] } },
+  adminDeleteOT: { fn: 'handleAdminDeleteOT', reads: ['STAFF', 'OT_RECORDS'], deletes: ['OT_RECORDS'] },
+  adminUpdateOT: { fn: 'handleAdminUpdateOT', reads: ['OT_DAILY', 'STUDENTS', 'PAYMENT_SLIPS'],
+    writes: { OT_DAILY: ['PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'FullAmount', 'Discount', 'Amount', 'DiscountReason', 'DiscountBy', 'DiscountAt', 'Status', 'PaidDate', 'SlipAmount'] } },
+  adminCancelOT: { fn: 'handleAdminCancelOT', reads: ['OT_DAILY'], writes: { OT_DAILY: ['Status'] } },
+  adminRestoreOT: { fn: 'handleAdminRestoreOT', reads: ['OT_DAILY'], writes: { OT_DAILY: ['Status'] } },
   approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
     writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
   confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
