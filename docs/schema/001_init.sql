@@ -1209,7 +1209,7 @@ create table if not exists payment_slips (
   "verified"                   text,
   "trans_ref"                  text,
   "receiver"                   text,
-  "submitted_date"             date,
+  "submitted_date"             timestamptz,
   "status"                     text,
   "slip_group"                 text,
   "trans_date"                 date,

@@ -30,6 +30,13 @@ const PG = require(path.join(ROOT, 'tools', 'pg_engine.js'));   // the table col
 /** action → the Apps Script function ROUTES calls, every sheet it reads (incl. via helpers), and —
  *  for a route that writes — the ONLY cells it may change: { SHEET: [columns] }, updates of existing
  *  rows only. Anything else it tries (another column, a new row, a delete, a cache, LINE) fails the call. */
+/* W4 3b — what paySlipRecompute_ may touch on each kind of payable (bill · ot · charge · prepay) */
+const PAY_READS_ = ['PAYMENT_SLIPS', 'BILLING', 'OT_DAILY', 'STUDENT_CHARGES', 'PREPAYMENTS', 'STUDENTS'];
+const PAY_WRITES_ = { BILLING: ['Status', 'PaidDate', 'SlipAmount', 'VerifiedStatus', 'ReceiptDate', 'PaymentMethod', 'TransactionDate'],
+  OT_DAILY: ['Status', 'PaidDate', 'SlipAmount', 'PaymentMethod', 'TransactionDate'],
+  STUDENT_CHARGES: ['Status'],
+  PREPAYMENTS: ['Status', 'PaidDate', 'SlipAmount', 'VerifiedStatus', 'PaymentMethod', 'TransactionDate'] };
+const PAY_DROPS_ = { OT_DAILY: ['VerifiedStatus'], STUDENT_CHARGES: ['PaidDate', 'SlipAmount', 'VerifiedStatus', 'PaymentMethod', 'TransactionDate'] };
 const PORTED = {
   // the 🔔 bell — Admin inbox · a staff member's inbox · a family's inbox (src/Notify.gs)
   notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS', 'APPLICATIONS'] },
@@ -238,6 +245,25 @@ const PORTED = {
   billRunLast: { fn: 'handleBillRunLast', reads: ['BILLING', 'PAYMENT_SLIPS', 'STUDENTS'] },
   undoBillRun: { fn: 'handleUndoBillRun', reads: ['BILLING', 'PAYMENT_SLIPS', 'STUDENTS'], deletes: ['BILLING'], shrinks: ['BILLING'] },
   deleteBill: { fn: 'handleDeleteBill', reads: ['BILLING', 'PAYMENT_SLIPS'], deletes: ['BILLING'], shrinks: ['BILLING'] },
+  /* ═══ W4 · group 3b — MONEY RECEIVED (src/PaySlips.gs) ═══════════════════════════════════════════════════════
+   * 💰 Every path here moves a payable's Status / SlipAmount through paySlipRecompute_ — the one rule that turns the
+   * sum of CONFIRMED slips into PAID / PARTIAL / PENDING_VERIFY / UNPAID. Anything that needs Drive (a slip image)
+   * or SlipOK (UrlFetch) is refused here and stays on Apps Script: uploadSlip · payOT · payCharge · payPrepay ·
+   * payCombined · verifySlip.
+   *   recordCashPayment  admin: money taken outside the app → a CONFIRMED slip row, no image; refused over the due
+   *   payCombinedCash    a FAMILY says they paid cash for the ticked items → one SUBMITTED row each (amount must
+   *                      equal the total · their own children only · not a future date) · admins told
+   *   confirmSlip / rejectSlip / rejectSlips   admin decides a slip; the payable re-settled
+   *   deleteSlip / deleteSlips                 admin removes a row with NO image (a slip is evidence: reject it)
+   * Proven by tools/test_fast_route_payments.js and its _live twin. */
+  recordCashPayment: { fn: 'handleRecordCashPayment', reads: PAY_READS_, appends: ['PAYMENT_SLIPS'], writes: PAY_WRITES_, drops: PAY_DROPS_ },
+  payCombinedCash: { fn: 'handlePayCombinedCash', reads: PAY_READS_.concat(['PARENTS', 'USER_LINKS', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS']),
+    appends: ['PAYMENT_SLIPS', 'ADMIN_INBOX'], writes: PAY_WRITES_, drops: PAY_DROPS_, line: true },
+  confirmSlip: { fn: 'handleConfirmSlip', reads: PAY_READS_, writes: Object.assign({ PAYMENT_SLIPS: ['Status'] }, PAY_WRITES_), drops: PAY_DROPS_ },
+  rejectSlip: { fn: 'handleRejectSlip', reads: PAY_READS_, writes: Object.assign({ PAYMENT_SLIPS: ['Status'] }, PAY_WRITES_), drops: PAY_DROPS_ },
+  rejectSlips: { fn: 'handleRejectSlips', reads: PAY_READS_, writes: Object.assign({ PAYMENT_SLIPS: ['Status'] }, PAY_WRITES_), drops: PAY_DROPS_ },
+  deleteSlip: { fn: 'handleDeleteSlip', reads: PAY_READS_, deletes: ['PAYMENT_SLIPS'], writes: PAY_WRITES_, drops: PAY_DROPS_ },
+  deleteSlips: { fn: 'handleDeleteSlips', reads: PAY_READS_, deletes: ['PAYMENT_SLIPS'], writes: PAY_WRITES_, drops: PAY_DROPS_ },
   approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
     writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
   confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
@@ -435,6 +461,14 @@ function run(action, payload, raw, H, config, sink, line) {
   const updateRow = (s, rowIndex, patch) => {
     const name = nameOf(s), allowedCols = may[name];
     if (!allowedCols) return breach('routes: ' + action + ' tried to write ' + name + ' which it does not declare');
+    /* 🔴 A COLUMN THE SHEET DOES NOT HAVE. Apps Script's updateRow_ writes only the sheet's own headers and drops
+     * the rest without a word — paySlipRecompute_ stamps VerifiedStatus on every payable, and OT_DAILY /
+     * STUDENT_CHARGES have no such column (Config.gs SCHEMA, and no ensureColumns_ ever adds one), so on Apps
+     * Script that half of the patch has never been stored. A route DECLARES each such field (`drops`), and only
+     * when it is not a column here; tools/test_fast_route_payments.js asserts every declared drop is absent from
+     * the sheet's SCHEMA and from every ensureColumns_ call. Anything undeclared still refuses. */
+    const dropHere = ((def.drops || {})[name] || []).filter(k => cols(name).indexOf(k) < 0);
+    if (dropHere.length && patch) { patch = Object.assign({}, patch); dropHere.forEach(k => { delete patch[k]; }); }
     const keys = Object.keys(patch || {});
     const bad = keys.filter(k => allowedCols.indexOf(k) < 0);
     if (bad.length) return breach('routes: ' + action + ' tried to write ' + name + '.' + bad.join(',') + ' which it does not declare');

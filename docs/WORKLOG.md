@@ -18,7 +18,14 @@
 - 🔴 BILLING ห้ามหดบนโฮสต์ (WRITE_GUARD เดียวกับ Apps Script) — แต่ deleteBill/undoBillRun คือทางลบที่ Apps Script เปิดไว้โดยเฉพาะ (in-place) · route ประกาศ `shrinks: ['BILLING']` (ต้องคู่กับ `deletes`) → host.js ยกเว้นเฉพาะชีตนั้นของ route นั้น · route อื่นยังถูกปฏิเสธเหมือนเดิม
 - 💰 ที่ทดสอบ: รอบล่าสุดย้อนได้เฉพาะบิลที่ไม่มีใครแตะ (เอ 6,900 · อี 4,500) · บิลที่มีสลิปรอตรวจ/จ่ายแล้ว/จ่ายบางส่วนถูกข้ามและรายงาน · ต้อง confirm · รอบที่ไม่ใช่ล่าสุด = RUN_CHANGED · บิลเดือนอื่นและบิลออกมือไม่ถูกแตะ · ลบบิลที่มีเงินยืนยัน/รอตรวจ = BILL_HAS_PAYMENT · แจ้งบิลถึงแม่และพ่อ (USER_LINKS)
 - **หลักฐาน**: test_fast_route_bills 58 · _live 25 · live อื่นผ่านทั้งหมด · test_all 237
-- **กลุ่ม 3 ที่เหลือ**: 3b รับเงิน/สลิป · 3c ชำระล่วงหน้า · 3d เงินเดือน
+- ขึ้นแล้ว: c66b4bf · Cloud Run rev 00027
+
+**กลุ่ม 3b — รับเงิน** `recordCashPayment` · `payCombinedCash` · `confirmSlip` · `rejectSlip` · `rejectSlips` · `deleteSlip` · `deleteSlips` — **ยังไม่ push / ยังไม่ deploy** · อัปโหลดสลิป/SlipOK (uploadSlip · payOT · payCharge · payPrepay · payCombined · verifySlip) อยู่ Apps Script
+- กล่องทรายได้ `drops`: Apps Script's updateRow_ ทิ้งช่องที่ชีตไม่มีเงียบ ๆ (paySlipRecompute_ เขียน VerifiedStatus ให้ OT_DAILY · SlipAmount/PaidDate/… ให้ STUDENT_CHARGES ซึ่งไม่มีคอลัมน์) · route ต้องประกาศทีละช่อง และ test ยืนยันว่าช่องนั้นไม่อยู่ใน SCHEMA และไม่มี ensureColumns_ ใดเพิ่ม (ลองใส่ Status → จับได้)
+- 🔴 **พบ**: PAYMENT_SLIPS.SubmittedDate เป็น `date` ใน Postgres → เวลาส่งสลิปหาย (หน้าจอแอดมินแสดง submittedAt) · แก้เป็น timestamptz แบบเดียวกับเวลาใบลา · staging --apply (คอลัมน์ว่าง) · test_all_pg slip ผ่าน
+- 💰 ที่ทดสอบ: เงินสด 3,000/6,900 → PARTIAL · รับเกิน = OVERPAY · ครบ → PAID + ReceiptDate · ทั้ง 4 ชนิด (บิล · OT · ค่าใช้จ่าย · ล่วงหน้า) · ยืนยันสลิป → PAID วันที่ที่ระบุ · ปฏิเสธสลิปที่ยืนยันแล้ว → UNPAID · ลบรายการมีรูป = HAS_SLIP · ลบหลายใบรายงานใบที่ข้าม · ครอบครัวแจ้งเงินสดต้องตรงยอดรวม ไม่ใช่วันในอนาคต เฉพาะลูกตัวเอง → SUBMITTED ไม่ใช่ PAID · ครู/ผู้ปกครอง/ผู้ตรวจเรียกงานแอดมินไม่ได้
+- **หลักฐาน**: test_fast_route_payments 82 · _live 47 · live อื่นผ่านทั้งหมด · test_all 238
+- **กลุ่ม 3 ที่เหลือ**: 3c ชำระล่วงหน้า · 3d เงินเดือน
 
 ---
 
