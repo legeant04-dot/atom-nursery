@@ -54,6 +54,7 @@
 !/src/PaySlips.gs
 !/src/AttReq.gs
 !/src/Password.gs
+!/src/BillRun.gs
 !/src/Line.gs
 
 !/docs/

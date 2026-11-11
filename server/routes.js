@@ -223,6 +223,21 @@ const PORTED = {
     writes: { OT_DAILY: ['PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'FullAmount', 'Discount', 'Amount', 'DiscountReason', 'DiscountBy', 'DiscountAt', 'Status', 'PaidDate', 'SlipAmount'] } },
   adminCancelOT: { fn: 'handleAdminCancelOT', reads: ['OT_DAILY'], writes: { OT_DAILY: ['Status'] } },
   adminRestoreOT: { fn: 'handleAdminRestoreOT', reads: ['OT_DAILY'], writes: { OT_DAILY: ['Status'] } },
+  /* ═══ W4 · group 3a — BILLS (admin only) ═══════════════════════════════════════════════════════════════════
+   * 💰 The bills themselves are ISSUED by the engine (issueBill · issueBillsFor · generateMonthlyBills — already
+   * MONEY_PROVEN in server/write_proven.js). These are the Code.gs routes around them:
+   *   notifyBills   tell the families of the chosen children that the month's bill is out: 🔔 always, LINE by parent.bill
+   *   billRunLast   READ — the latest bulk run: what it made, which bills are untouched (removable) and which a
+   *                 family has acted on (slip · paid · partial — kept and named)
+   *   undoBillRun   take that run back IN PLACE: only the run the admin looked at (RUN_CHANGED otherwise), only
+   *                 with confirm:true, only the untouched bills; the rest skipped and reported · audited
+   *   deleteBill    one bill, refused when any slip (confirmed or waiting) is tied to it (BILL_HAS_PAYMENT)
+   * BILLING never shrinks on this host — these two are the declared exception, as on Apps Script (host.js shrinkOk).
+   * Proven by tools/test_fast_route_bills.js and its _live twin. */
+  notifyBills: { fn: 'handleNotifyBills', reads: ['STUDENTS', 'PARENTS', 'USER_LINKS', 'ADMIN_INBOX'], appends: ['ADMIN_INBOX'], line: true },
+  billRunLast: { fn: 'handleBillRunLast', reads: ['BILLING', 'PAYMENT_SLIPS', 'STUDENTS'] },
+  undoBillRun: { fn: 'handleUndoBillRun', reads: ['BILLING', 'PAYMENT_SLIPS', 'STUDENTS'], deletes: ['BILLING'], shrinks: ['BILLING'] },
+  deleteBill: { fn: 'handleDeleteBill', reads: ['BILLING', 'PAYMENT_SLIPS'], deletes: ['BILLING'], shrinks: ['BILLING'] },
   approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
     writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
   confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
@@ -264,7 +279,7 @@ const ALWAYS_READ = ['SCHOOL_CONFIG'];
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
 const FILES = ['Config', 'Db', 'Audit', 'Line', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate',
   'Staff', 'Dspm', 'DspmAdmin', 'Parent', 'Journal', 'Announce',
-  'Apply', 'PaySlips', 'AttReq', 'Password'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
+  'Apply', 'PaySlips', 'AttReq', 'Password', 'BillRun'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
 let box = null, pristine = null, ORIG = null;
 function load() {
   if (box) return box;
@@ -568,4 +583,6 @@ function run(action, payload, raw, H, config, sink, line) {
   return out === undefined ? out : JSON.parse(JSON.stringify(out));
 }
 
-module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, sendsLine, engineWrites, run, formatDate, setClock, FAKE_DATE };
+/* the sheets a route is Apps Script's in-place exception to the shrink guard for (host.js) — must also be in `deletes` */
+const shrinks = a => { const d = PORTED[a] || {}; return (d.shrinks || []).filter(x => (d.deletes || []).indexOf(x) >= 0); };
+module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, sendsLine, engineWrites, shrinks, run, formatDate, setClock, FAKE_DATE };

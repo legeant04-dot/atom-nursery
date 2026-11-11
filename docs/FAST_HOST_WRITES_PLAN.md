@@ -139,7 +139,7 @@ route ไหนที่ sandbox พบว่าแตะ Drive/รูป/เง
 
 ## ระยะ W4 · เงินโดยตรง
 
-**สถานะ 2026-11-11:** ✅ กลุ่ม 1 เวลาครู (confirmTimeRequest · editStaffAttendance) · ✅ กลุ่ม 2 OT (adminAddOT · adminAddHolidayOT · adminEditOT · adminDeleteOT · adminUpdateOT · adminCancelOT · adminRestoreOT) — พิสูจน์แล้ว **รอ ผอ. ตรวจก่อน deploy** · ⏳ กลุ่ม 3 บิล/สลิป/ล่วงหน้า/เงินเดือน (31 route)
+**สถานะ 2026-11-11:** ✅ กลุ่ม 1 เวลาครู (confirmTimeRequest · editStaffAttendance) · ✅ กลุ่ม 2 OT (adminAddOT · adminAddHolidayOT · adminEditOT · adminDeleteOT · adminUpdateOT · adminCancelOT · adminRestoreOT) — deploy rev 00026 · ✅ 3a บิล (notifyBills · billRunLast · undoBillRun · deleteBill — BILLING หดได้เฉพาะสองทางนี้ `shrinks`) **รอ ผอ. ตรวจ** · ⏳ 3b รับเงิน/สลิป · 3c ล่วงหน้า · 3d เงินเดือน
 
 บิล · สลิป · ชำระล่วงหน้า · เงินเดือน · OT จ่าย — **ผอ. ตรวจก่อนเปิดทีละกลุ่ม** · "เรื่องเงินเป็นเรื่องละเอียดและสำคัญมาก"
 
