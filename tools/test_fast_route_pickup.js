@@ -261,6 +261,10 @@ console.log('\n10) 🔴 ปุ่มของผู้ปกครองเป�
   eq('🔴 หัวหน้าครู → NO_PERMISSION', who('Leader', 'STF-HD'), 'NO_PERMISSION');
   eq('แอดมิน (ดูมุมมองผู้ปกครอง) → ผ่านเหมือนเดิม', who('Admin', 'STF-A'), 'ok:PAR-01');
   ok_('ผู้ปกครอง → ผ่าน และ parentId มาจากเซสชันเสมอ (ไม่ใช่ที่ส่งมา)', /^(ok:PAR-02|NO_ACCESS)$/.test(who('Parent', 'PAR-02')));
+  /* ...and the family's own leave (ผอ. 2026-11-11) */
+  const leave = (action, role, linkedId) => { try { GATE.identity(action, { parentId: 'PAR-01', studentId: 'S01', leaveId: 'LVS-0002' }, { uid: 'U-' + linkedId, role, linkedId }, {}); return 'ok'; } catch (e) { return e.apiCode || e.message; } };
+  eq('🔴 ครูแก้ / ยกเลิกใบลาในนามผู้ปกครอง → NO_PERMISSION ทั้งสอง', [leave('parentEditLeave', 'Teacher', 'STF-T'), leave('parentCancelLeave', 'Teacher', 'STF-T'), leave('parentCancelLeave', 'Leader', 'STF-HD')], ['NO_PERMISSION', 'NO_PERMISSION', 'NO_PERMISSION']);
+  eq('แอดมิน → ผ่าน', leave('parentEditLeave', 'Admin', 'STF-A'), 'ok');
 }
 
 console.log('\n11) ผู้ปกครองแก้ / ยกเลิกใบลาของลูก — วันอังคาร 17/11');

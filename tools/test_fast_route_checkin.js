@@ -281,6 +281,13 @@ eq('...REJECTED · เหตุผลถูกเก็บ · ผู้ขอไ
 r = step(AR, ARF, { staffId: 'STF-L', reqId: 'ATR-999', decision: 'approve' }, '🔴 ไม่มีคำขอนี้');
 eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
 
+/* 🔴 request 1000 used to be ATR-000, and every one after it ATR-000 again (ผอ. 2026-11-11 — fixed in AttReq.gs) */
+G.run(function () { appendObject_(sheet_(getHrSpreadsheet_(), 'ATTENDANCE_REQUEST'), { ReqID: 'ATR-999', StaffID: 'STF-U', Date: '2026-11-01', Type: 'IN', RequestTime: '08:00', Status: 'APPROVED' }); return ''; });
+db.ATTENDANCE_REQUEST.push(Object.assign({ __id: 'r' + (nextId++) }, gasState().ATTENDANCE_REQUEST.slice(-1)[0]));   // the row exactly as the sheet holds it
+r = step(SR, SRF, { staffId: 'STF-U', type: 'IN', date: '2026-11-16', time: '08:05' }, 'คำขอใบที่ 1000');
+eq('🔴 ...ATR-1000 ไม่ใช่ ATR-000', r.host.data && r.host.data.reqId, 'ATR-1000');
+r = step(SR, SRF, { staffId: 'STF-U', type: 'IN', date: '2026-11-16', time: '08:06' }, 'คำขอใบที่ 1001');
+eq('🔴 ...ATR-1001 (ไม่ซ้ำ)', r.host.data && r.host.data.reqId, 'ATR-1001');
 console.log('\n9) 🔴 กล่องทราย');
 {
   ROUTES.setClock(null);
