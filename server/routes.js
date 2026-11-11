@@ -264,6 +264,20 @@ const PORTED = {
   rejectSlips: { fn: 'handleRejectSlips', reads: PAY_READS_, writes: Object.assign({ PAYMENT_SLIPS: ['Status'] }, PAY_WRITES_), drops: PAY_DROPS_ },
   deleteSlip: { fn: 'handleDeleteSlip', reads: PAY_READS_, deletes: ['PAYMENT_SLIPS'], writes: PAY_WRITES_, drops: PAY_DROPS_ },
   deleteSlips: { fn: 'handleDeleteSlips', reads: PAY_READS_, deletes: ['PAYMENT_SLIPS'], writes: PAY_WRITES_, drops: PAY_DROPS_ },
+  /* ═══ W4 · group 3c — ADVANCE TUITION (ชำระล่วงหน้า · admin only) ═══════════════════════════════════════════
+   * 💰 The prepayment itself is created by the engine's `prepay` (MONEY_PROVEN). Prepay covers TUITION ONLY.
+   *   savePrepayTiers  the discount tiers (months → %) as JSON in SCHOOL_CONFIG; at least one; 0–100 %; sorted
+   *   editPrepay       unpaid → months · discount · start month, re-quoted from the child's plan price (Gross ×
+   *                    (100 − %) rounded; NO_PLAN_PRICE without one) · PAID → the start month only (ALREADY_PAID
+   *                    for months/discount) · audited
+   *   cancelPrepay     delete an UNPAID one with no live slip, in place (ALREADY_PAID · HAS_SLIP) · audited
+   *   prepayAudit      READ the bills the OLD prepay logic marked paid; {apply:true} resets ONLY the bug's marker
+   *                    (VerifiedStatus PREPAID) — a bill the family truly paid is never touched
+   * Proven by tools/test_fast_route_prepay.js and its _live twin. */
+  savePrepayTiers: { fn: 'handleSavePrepayTiers', reads: [], writes: { SCHOOL_CONFIG: ['Value'] }, appends: ['SCHOOL_CONFIG'] },
+  editPrepay: { fn: 'handleEditPrepay', reads: ['PREPAYMENTS', 'STUDENTS'], writes: { PREPAYMENTS: ['Months', 'Discount', 'Covered', 'Gross', 'Amount'] } },
+  cancelPrepay: { fn: 'handleCancelPrepay', reads: ['PREPAYMENTS', 'PAYMENT_SLIPS'], deletes: ['PREPAYMENTS'] },
+  prepayAudit: { fn: 'handlePrepayAudit', reads: ['PREPAYMENTS', 'BILLING', 'STUDENTS'], writes: { BILLING: ['Status', 'VerifiedStatus', 'PaidDate'] } },
   approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
     writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
   confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
