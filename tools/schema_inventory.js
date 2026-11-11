@@ -471,7 +471,9 @@ const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', '
   /* WHEN a staff leave was filed and decided — moments (new Date() in Leave.gs, stampLocal() in the engine).
    * Typed date from their names, Postgres kept the day and dropped the time the sheet keeps (found 2026-11-10
    * porting submitLeave/approveLeave; the director asked for the time to be kept). */
-  'LEAVE_REQUEST.CreatedDate': 'timestamptz', 'LEAVE_REQUEST.Step1Date': 'timestamptz', 'LEAVE_REQUEST.Step2Date': 'timestamptz' };
+  'LEAVE_REQUEST.CreatedDate': 'timestamptz', 'LEAVE_REQUEST.Step1Date': 'timestamptz', 'LEAVE_REQUEST.Step2Date': 'timestamptz',
+  // W4 3b (2026-11-11): nowStr_() 'yyyy-MM-dd HH:mm:ss' — the admin's slip list shows submittedAt; a date column dropped the time
+  'PAYMENT_SLIPS.SubmittedDate': 'timestamptz' };
 
 function sqlType(col, sheet) {
   if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];
