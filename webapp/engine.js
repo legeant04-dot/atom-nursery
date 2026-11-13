@@ -1442,6 +1442,29 @@ function createAtomAPI(M, GROWTH_STD) {
   const holidayAttendIds_ = date => { const d=ymd(date||todayLocal());
     return holidayAttend_().filter(r=>ymd(r.Date)===d).map(r=>String(r.StudentID)); };
   const isHolidayAttendee_ = (sid, date) => holidayAttendIds_(date).indexOf(String(sid))>=0;
+  /* ═══ 💵 ค่าดูแลวันหยุด (asked 2026-11-13) ═══════════════════════════════════════════════════════
+   * The ผอ.: "เมื่อเลือกคุณครูและนักเรียนเรียบร้อย … ให้ออกบิลอัตโนมัติ … ราคาต่างกันได้ ขึ้นอยู่กับ Admin".
+   * Each child on a closed day can carry a price (HOLIDAY_ATTEND.Fee). A price above 0 IS a bill: one
+   * STUDENT_CHARGES row, linked back by ChargeID, so the family pays it on the screen every other
+   * extra charge is paid on — same slip, same verify queue, same receipt. Nothing new to trust.
+   *
+   * 🔒 A CHARGE SOMEBODY HAS STARTED TO PAY IS NEVER CHANGED HERE. Decided with the ผอ.: once a
+   * family has sent a slip (or it is PAID / PARTIAL), the price cannot be edited and the child cannot
+   * be taken off the day — a refund happens outside the app first. Silently deleting a paid charge
+   * would leave money received against nothing; repricing it would leave a slip that no longer
+   * matches its bill. An UNPAID charge with no slip is still only a promise and follows the form. */
+  const TH_MON_SHORT_ = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const thDay_ = v => { const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(ymd(v)||''); return m ? (+m[3])+' '+TH_MON_SHORT_[+m[2]-1]+' '+(+m[1]+543) : String(v||''); };
+  const holidayChargeLabel_ = d => 'ค่าดูแลวันหยุด '+thDay_(d);
+  const chargeById_ = id => id ? ((M.studentCharges||[]).find(c=>String(c.ChargeID)===String(id))||null) : null;
+  const chargeLocked_ = c => { if(!c) return false;
+    if(String(c.Status||'UNPAID').toUpperCase()!=='UNPAID') return true;
+    return paySlips_().some(x=>x.RefKind==='charge' && String(x.RefID)===String(c.ChargeID) && String(x.Status||'').toUpperCase()!=='REJECTED'); };
+  const dropCharge_ = c => { const i=(M.studentCharges||[]).indexOf(c); if(i>=0) M.studentCharges.splice(i,1); };
+  /** '' = not priced yet. Anything else must be a real amount — a typo is refused, never read as 0 (free). */
+  const holidayFee_ = v => { if(v===''||v==null) return '';
+    const n=Number(v); if(!isFinite(n)||n<0) fail('BAD_INPUT','ค่าดูแลวันหยุดต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
+    return Math.round(n*100)/100; };
   /** Staff who were given OT วันหยุด on this date — the day is a working day for them, and only them. */
   const holidayOTStaff_ = date => { const d=ymd(date||todayLocal());
     return (M.otRecords||[]).filter(r=>isHolidayOT_(r) && ymd(r.Date)===d &&
@@ -5876,19 +5899,25 @@ function createAtomAPI(M, GROWTH_STD) {
      */
     holidayAttendList: p => { const d=ymd((p&&p.date)||todayLocal());
       const ids=holidayAttendIds_(d);
+      const money=adminLike_(staffById(p&&p.staffId));
+      const rowOf={}; holidayAttend_().forEach(r=>{ if(ymd(r.Date)===d) rowOf[String(r.StudentID)]=r; });
       const rows=enrolledStudents(d).filter(s=>ids.indexOf(String(s.StudentID))>=0).map(s=>{
         const h=(M.studentCheckins||[]).find(c=>String(c.StudentID)===String(s.StudentID)&&ymd(c.Date)===d)||{};
         const ot=(M.otDaily||[]).find(o=>String(o.StudentID)===String(s.StudentID)&&ymd(o.Date)===d)||null;
         return { studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
           class:s.Class||'', inTime:String(h.InTime||'').slice(0,5), outTime:String(h.OutTime||'').slice(0,5),
-          planEnd:otThreshold(s), otAmount:ot?Number(ot.Amount||0):0, otStatus:ot?String(ot.Status||''):'' };
+          planEnd:otThreshold(s), otAmount:ot?Number(ot.Amount||0):0, otStatus:ot?String(ot.Status||''):'',
+          ...(money ? (()=>{ const r=rowOf[String(s.StudentID)]||{}; const c=chargeById_(r.ChargeID);
+            return { fee:(r.Fee==null?'':r.Fee), feeStatus:String(r.FeeStatus||''), chargeId:c?c.ChargeID:'',
+                     chargeStatus:c?String(c.Status||'UNPAID'):'', chargeLocked:chargeLocked_(c) }; })() : {}) };
       }).sort((a,b)=>String(a.class).localeCompare(String(b.class)));
       const day=schoolDayFor_(d);
       const otStaff=holidayOTStaffInfo_(d);
       return { date:d, closed:!!day.closedForStudents, closedForStaff:!!day.closed, count:rows.length,
                reason:day.reason||'', staffCount:otStaff.length,
                // the ids stay for anything asking "is this person on it"; the rows are what a screen prints
-               staffIds:holidayOTStaff_(d), staff:otStaff, students:rows }; },
+               staffIds:holidayOTStaff_(d), staff:otStaff, students:rows,
+               ...(money ? { defaultFee:(cfg.HolidayCareFee==null?'':cfg.HolidayCareFee) } : {}) }; },
     /**
      * OT วันหยุด THAT HAS NOT HAPPENED YET — today and the days ahead, for the caller.
      *
@@ -6011,10 +6040,46 @@ function createAtomAPI(M, GROWTH_STD) {
       let ids=(p&&p.studentIds)||[]; if(!Array.isArray(ids)) ids=[ids];
       ids=[...new Set(ids.map(x=>String(x||'').trim()).filter(Boolean))];
       ids.forEach(id=>{ if(!studentById(id)) fail('NOT_FOUND','ไม่พบนักเรียน '+id); });
-      const keep=holidayAttend_().filter(r=>ymd(r.Date)!==d);
-      M.holidayAttend=keep.concat(ids.map(id=>({Date:d,StudentID:id,AddedBy:(p&&p.staffId)||'',AddedAt:stampLocal()})));
-      logAct('holidayAttendSet',d,'นักเรียนที่มาวันหยุด '+ids.length+' คน',actorOf(p));
-      return { date:d, count:ids.length, studentIds:ids }; },
+      /* fees: { studentId: amount | '' }. A child missing from it keeps the price they already had —
+       * so an older screen that sends no prices at all changes no money, and a brand-new name with
+       * no price waits for one (PENDING) instead of being billed nothing by accident. */
+      const fees=(p&&p.fees&&typeof p.fees==='object')?p.fees:null;
+      const cur={}; holidayAttend_().filter(r=>ymd(r.Date)===d).forEach(r=>{ cur[String(r.StudentID)]=r; });
+      const nameOf=sid=>{ const st=studentById(sid)||{}; return st.Nickname||st.NameTH||st.Name||sid; };
+      // PLAN FIRST, CHANGE NOTHING — a refusal must leave every list and every bill as it was
+      const plan=[], locked=[];
+      ids.forEach(sid=>{ const old=cur[sid]||null; const c=old?chargeById_(old.ChargeID):null;
+        let fee, status;
+        if(fees && Object.prototype.hasOwnProperty.call(fees,sid)){ fee=holidayFee_(fees[sid]); status=fee===''?'PENDING':'SET'; }
+        else if(old){ fee=(old.Fee==null?'':old.Fee); status=String(old.FeeStatus||''); }
+        else { fee=''; status='PENDING'; }
+        const want=(status==='SET' && Number(fee)>0) ? Number(fee) : 0;
+        if(c && chargeLocked_(c) && Number(c.Amount||0)!==want) locked.push(nameOf(sid));
+        plan.push({ sid, old, c, fee, status, want }); });
+      Object.keys(cur).forEach(sid=>{ if(ids.indexOf(sid)>=0) return;
+        const c=chargeById_(cur[sid].ChargeID); if(c && chargeLocked_(c)) locked.push(nameOf(sid)); });
+      if(locked.length) fail('CHARGE_LOCKED','บิลค่าดูแลวันหยุดของ '+locked.join(', ')+' ชำระแล้วหรือส่งสลิปแล้ว — แก้ราคาหรือเอาชื่อออกไม่ได้ · หากต้องคืนเงินให้จัดการนอกระบบก่อน');
+      // ...then apply
+      const notify=[], month=ym(d), label=holidayChargeLabel_(d);
+      Object.keys(cur).forEach(sid=>{ if(ids.indexOf(sid)>=0) return;
+        const c=chargeById_(cur[sid].ChargeID);
+        if(c){ notify.push({ studentId:sid, kind:'cancel', amount:Number(c.Amount||0), chargeId:c.ChargeID }); dropCharge_(c); } });
+      const rows=plan.map(x=>{ let cid=x.c?x.c.ChargeID:'';
+        if(x.c && x.want===0){ notify.push({ studentId:x.sid, kind:'cancel', amount:Number(x.c.Amount||0), chargeId:cid }); dropCharge_(x.c); cid=''; }
+        else if(x.c && Number(x.c.Amount||0)!==x.want){ const was=Number(x.c.Amount||0); x.c.Amount=x.want; x.c.Label=label; x.c.Month=month;
+          notify.push({ studentId:x.sid, kind:'change', amount:x.want, from:was, chargeId:cid }); }
+        else if(!x.c && x.want>0){ const c={ ChargeID:nextSeqId_(M.studentCharges,'ChargeID','CH',0), StudentID:x.sid, Month:month,
+            Label:label, Amount:x.want, Status:'UNPAID' };
+          M.studentCharges.push(c); cid=c.ChargeID; notify.push({ studentId:x.sid, kind:'new', amount:x.want, chargeId:cid }); }
+        return { Date:d, StudentID:x.sid, AddedBy:x.old?x.old.AddedBy:((p&&p.staffId)||''), AddedAt:x.old?x.old.AddedAt:stampLocal(),
+                 Fee:x.fee, FeeStatus:x.status, ChargeID:cid }; });
+      M.holidayAttend=holidayAttend_().filter(r=>ymd(r.Date)!==d).concat(rows);
+      const billed=rows.filter(r=>r.ChargeID);
+      logAct('holidayAttendSet',d,'นักเรียนที่มาวันหยุด '+ids.length+' คน · ออกบิล '+billed.length+' คน รวม '+
+        billed.reduce((a,r)=>a+Number(r.Fee||0),0)+' บาท',actorOf(p));
+      return { date:d, count:ids.length, studentIds:ids, label,
+               billed:billed.map(r=>({ studentId:r.StudentID, amount:Number(r.Fee||0), chargeId:r.ChargeID })),
+               pending:rows.filter(r=>r.FeeStatus==='PENDING').map(r=>r.StudentID), notify }; },
     /** Teacher or admin: one more name, because a family turned up. */
     holidayAttendAdd: p => { const d=ymd((p&&p.date)||todayLocal());
       /* STAFF ONLY. This action decides whether a child may be checked in on a day the school is
@@ -6024,7 +6089,8 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!staffById(p&&p.staffId).StaffID) fail('NO_PERMISSION','เฉพาะคุณครูหรือแอดมิน');
       const st=studentById(p&&p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
       if(isHolidayAttendee_(st.StudentID,d)) return { date:d, studentId:st.StudentID, already:true };
-      holidayAttend_().push({Date:d,StudentID:st.StudentID,AddedBy:(p&&p.staffId)||'',AddedAt:stampLocal()});
+      // 💵 no price yet: the admin decides it (ผอ., 2026-11-13) — PENDING puts a badge on their OT วันหยุด tool
+      holidayAttend_().push({Date:d,StudentID:st.StudentID,AddedBy:(p&&p.staffId)||'',AddedAt:stampLocal(),Fee:'',FeeStatus:'PENDING',ChargeID:''});
       logAct('holidayAttendAdd',st.StudentID,'เพิ่มชื่อมาโรงเรียนวันหยุด '+d,actorOf(p));
       return { date:d, studentId:st.StudentID, added:true }; },
     /** ...and take one off again (ticked by mistake, or the family cancelled). */
@@ -6036,6 +6102,9 @@ function createAtomAPI(M, GROWTH_STD) {
       // can explain, so the attendance has to be corrected first
       const h=(M.studentCheckins||[]).find(c=>String(c.StudentID)===String(p.studentId)&&ymd(c.Date)===d);
       if(h&&(h.InTime||h.OutTime)) fail('BAD_STATE','นักเรียนคนนี้ลงเวลาไปแล้วในวันนั้น — แก้ไขเวลารับ-ส่งก่อน');
+      const hc=chargeById_(M.holidayAttend[i].ChargeID);
+      if(hc && chargeLocked_(hc)) fail('CHARGE_LOCKED','บิลค่าดูแลวันหยุดของนักเรียนคนนี้ชำระแล้วหรือส่งสลิปแล้ว — เอาชื่อออกไม่ได้');
+      if(hc) dropCharge_(hc);
       M.holidayAttend.splice(i,1);
       logAct('holidayAttendRemove',String(p.studentId),'เอาออกจากรายชื่อวันหยุด '+d,actorOf(p));
       return { date:d, studentId:p.studentId, removed:true }; },
@@ -7642,6 +7711,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * parent — these are school-wide settings, not staff data, which is why this route is not
      * admin-only. */
     schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate, ContributionMatchRate:cfg.ContributionMatchRate,
+      HolidayCareFee:cfg.HolidayCareFee,   // 💵 ค่าดูแลวันหยุด/คน (2026-11-13)
       ...NOTIFY_KEYS_.reduce((o,k)=>{ o[k]=cfg[k]; return o; },{}),
       DigestMorning:cfg.DigestMorning, DigestEvening:cfg.DigestEvening,
       // how long a cached read may be reused — the one performance setting the admin can turn, so it
@@ -7765,15 +7835,20 @@ function createAtomAPI(M, GROWTH_STD) {
       let ids=p.staffIds||p.targetStaffIds||(p.targetStaffId?[p.targetStaffId]:[]); if(!Array.isArray(ids))ids=[ids];
       const targets=[]; ids.map(x=>String(x||'').trim()).filter(x=>x).forEach(id=>{ if(targets.indexOf(id)<0)targets.push(id); });
       if(!targets.length)fail('BAD_INPUT','เลือกพนักงานอย่างน้อย 1 คน');
-      const amount=Number(p.amount)||0; if(amount<=0)fail('BAD_INPUT','ระบุจำนวนเงิน OT');
+      // 💵 one amount EACH (ผอ., 2026-11-13) — p.amount stays the fallback for an older screen
+      const amounts=(p.amounts&&typeof p.amounts==='object')?p.amounts:{};
+      const amountOf=id=>{ const v=Object.prototype.hasOwnProperty.call(amounts,id)?amounts[id]:p.amount; const n=Number(v);
+        if(!isFinite(n)||n<=0) fail('BAD_INPUT','ระบุจำนวนเงิน OT ของ '+((staffById_(id)||{}).NameTH||id)); return Math.round(n*100)/100; };
+      const each={}; targets.forEach(id=>{ each[id]=amountOf(id); });
+      const amount=each[targets[0]];
       const note=String(p.note==null?'':p.note).trim(); if(!note)fail('BAD_INPUT','ระบุรายละเอียดการทำงานวันหยุด');
       const date=p.date||todayLocal(); const added=[];
       targets.forEach((target,i)=>{ const st=staffById_(target); if(!st.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน '+target);
-        M.otRecords.push({OTRecordID:'OTR-'+String(Date.now()).slice(-6)+'-'+i,StaffID:target,Date:date,Hours:0,Rate:0,Amount:amount,
+        M.otRecords.push({OTRecordID:'OTR-'+String(Date.now()).slice(-6)+'-'+i,StaffID:target,Date:date,Hours:0,Rate:0,Amount:each[target],
           ApprovedBy:ap.NameTH,Status:'APPROVED',Minutes:0,PlanOut:'',ActualOut:'',Month:ym(date),
           Step1By:ap.NameTH,Step1Status:'Approved',Step2By:ap.NameTH,Step2Status:'Approved',Note:note,Kind:'HOLIDAY'});
         added.push(target); });
-      return {count:added.length,date,amount,staffIds:added,status:'APPROVED'}; },
+      return {count:added.length,date,amount,amounts:each,staffIds:added,status:'APPROVED'}; },
     // Admin edits any OT (hours/amount/note). Recomputes amount from hours unless amount is given.
     adminEditOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
@@ -7828,7 +7903,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const o={
         // a teacher's OT and a holiday OT are approved on two different screens, so they are two counts
         staffOT:      ot.filter(r=>!isHolidayOT_(r)).length,
-        holidayOT:    ot.filter(r=>isHolidayOT_(r)).length,
+        // ...plus the children added on the day whose price the admin has not set (💵 2026-11-13)
+        holidayOT:    ot.filter(r=>isHolidayOT_(r)).length
+                      + holidayAttend_().filter(r=>String(r.FeeStatus||'').toUpperCase()==='PENDING').length,
         timeRequests: (M.attendanceReq||[]).filter(r=>pend(r.Status)).length,
         classChanges: (M.classChangeReq||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING_ADMIN').length,
         studentOT:    (M.otDaily||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING_VERIFY').length,

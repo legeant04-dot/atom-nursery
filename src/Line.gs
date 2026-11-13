@@ -283,14 +283,15 @@ function handleLineUsage(p) {
     return a + onDuty.filter(function (s) { return staffCoversClass_(s, c); }).length; }, 0) / clsList.length * 10) / 10 : 0;
   var reachIf = function (topic) { return lineTopicOn_(topic) ? perClass : 0; };
 
-  var count = function (wb, sheet, dateField, filter) {
+  var count = function (wb, sheet, dateField, filter, keyOf) {
     try {
       var rows = readObjects_(sheet_(wb === 'HR' ? HR : MAIN, sheet));
-      var n = 0, byDay = {};
+      var n = 0, byDay = {}, seen = {};
       rows.forEach(function (r) {
         var d = luDate_(r[dateField]);
         if (!inWin(d)) return;
         if (filter && !filter(r)) return;
+        if (keyOf) { var k = String(keyOf(r) || ''); if (k) { if (seen[k]) return; seen[k] = 1; } }   // one event, many rows
         n++; byDay[d] = 1;
       });
       return { n: n, days: Object.keys(byDay).length };
@@ -327,11 +328,11 @@ function handleLineUsage(p) {
    * than everything the recipient list controls put together. An estimate that silently omits the
    * biggest line is worse than no estimate. */
   push('journalParent', 'แจ้งผู้ปกครองเมื่อคุณครูส่งบันทึกประจำวัน',
-    count('MAIN', 'JOURNAL', 'Date', function (r) { return String(r.Status || '').toUpperCase() !== 'DRAFT'; }),
+    count('MAIN', 'DAILY_JOURNAL', 'Date', function (r) { return String(r.Status || '').toUpperCase() !== 'DRAFT'; }),
     on_('parent.journal'), on_('parent.journal') ? 'ส่งหาผู้ปกครอง 1 คน ต่อเด็ก 1 คน ต่อวัน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
   items[items.length - 1].parent = true;
   push('dspmParent', 'แจ้งผู้ปกครองเมื่อบันทึกผลประเมิน DSPM',
-    count('MAIN', 'ASSESSMENTS', 'Date'), on_('parent.dspm'), on_('parent.dspm') ? '' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+    count('MAIN', 'DSPM_ASSESSMENT', 'Date', null, function (r) { return r.AssessmentID; }), on_('parent.dspm'), on_('parent.dspm') ? '' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
   items[items.length - 1].parent = true;
   push('otParent', 'แจ้งผู้ปกครองเรื่องค่ารับช้า (OT)', count('MAIN', 'OT_DAILY', 'Date'), on_('parent.ot'),
     on_('parent.ot') ? 'เรื่องเงินที่ครอบครัวต้องชำระ' : 'ปิดอยู่ — ไม่เสียโควตา', 1);

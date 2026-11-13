@@ -190,8 +190,9 @@ console.log('\n6) the screen: ดำเนินการ → คุณครู
   ok_('several staff can be ticked at once, with a select-all', /A_hotToggleAll/.test(scr) && /id="hotAll"/.test(scr));
   ok_('staff who have left are not offered', /\.filter\(s=>!s\.ended\)/.test(scr));
   ok_('the count of who is ticked is shown as it changes', /A_hotSel/.test(scr));
-  // an amount PER PERSON times five people is five times the money — say the total before writing it
-  ok_('it confirms the TOTAL before writing, not just the per-head amount', /amount\*staffIds\.length/.test(scr));
+  // an amount PER PERSON times five people is five times the money — say the total before writing it.
+  // Since 2026-11-13 each person has their OWN amount, so the total is the sum of the boxes (hotAmtTotals).
+  ok_('it confirms the TOTAL before writing, not just the per-head amount', /รวม \$\{baht\(at\.total\)\}/.test(scr) && /function hotAmtTotals\(/.test(scr));
   ok_('the month is listed with its total, so the Admin can see what has been granted', /const total=hol\.reduce/.test(scr));
   ok_('...and each row can be corrected or removed', /A_hotSave/.test(scr) && /A_hotDel/.test(scr));
   ok_('deleting asks first', /A_hotDel=async\(otId\)=>\{ if\(!confirm/.test(scr));

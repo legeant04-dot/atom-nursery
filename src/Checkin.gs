@@ -929,6 +929,7 @@ function handleBigCleaningDays() {
 // ---- Attendance reminder triggers (skip weekends + holidays) -------
 /** Run ~06:50: morning reminder for active staff to clock in at 07:00 (skip on closed days). */
 function forgotCheckinReminder() {
+  if (typeof freezeSkip_ === 'function' && freezeSkip_('forgotCheckinReminder')) return;      // 🧊 WRITE_FREEZE (src/Freeze.gs)
   if (isSchoolClosed_(new Date())) return;                                 // no work on weekends/holidays
   var today = dateStr_(new Date());
   var checkins = readObjects_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF'));
@@ -952,6 +953,7 @@ function forgotCheckinReminder() {
 
 /** Run ~18:30: remind staff who checked in but not out (skip on closed days). */
 function forgotCheckoutReminder() {
+  if (typeof freezeSkip_ === 'function' && freezeSkip_('forgotCheckoutReminder')) return;      // 🧊 WRITE_FREEZE (src/Freeze.gs)
   if (isSchoolClosed_(new Date())) return;
   var today = dateStr_(new Date());
   readObjects_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF')).forEach(function (r) {

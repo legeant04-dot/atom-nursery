@@ -959,6 +959,9 @@ create table if not exists holiday_attend (
   "student_id"                 text,
   "added_by"                   text,
   "added_at"                   timestamptz,
+  "fee"                        numeric(12,2),
+  "fee_status"                 text,
+  "charge_id"                  text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

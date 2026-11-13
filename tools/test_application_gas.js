@@ -90,7 +90,7 @@ const res = JSON.parse(run(new Function('return (' + function () {
   var ap = call('approveApplication', { appId: 'APP-0001', startDate: '2099-02-01', className: 'Nursery 1' }, A);
   out.approve = ap.ok ? [ap.d.status, !!ap.d.studentId] : ap.code;
   var st = readObjects_(sheet_(main, 'STUDENTS'));
-  out.student = st.length ? [st.length, st[0].ParentID, String(st[0].EnrollDate).slice(0, 10), st[0].Status] : null;
+  out.student = st.length ? [st.length, st[0].ParentID, ymdCell_(st[0].EnrollDate), st[0].Status] : null;
   out.link = readObjects_(sheet_(main, 'USER_LINKS')).filter(function (l) { return l.UserUID === 'U-P9' && l.StudentID === (st[0] || {}).StudentID; }).length;
   out.pickup = readObjects_(sheet_(main, 'PICKUP_PERSONS')).length;
   var fam2 = call('notifications', { role: 'Parent' }, P).d || [];

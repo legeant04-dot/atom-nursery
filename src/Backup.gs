@@ -33,6 +33,7 @@ function backupOne_(propKey, label, folder, stamp) {
 
 /** Daily backup of both workbooks (scheduled). Returns the new copy ids. */
 function dailyBackup() {
+  if (typeof freezeSkip_ === 'function' && freezeSkip_('dailyBackup')) return;      // 🧊 WRITE_FREEZE (src/Freeze.gs)
   var folder = backupFolder_();
   var stamp = Utilities.formatDate(new Date(), getConfig_('Timezone', 'Asia/Bangkok'), 'yyyyMMdd_HHmm');
   var ids = {

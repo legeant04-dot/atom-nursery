@@ -84,6 +84,11 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
     'submitApplication', 'setApplicationVisit', 'rejectApplication', 'approveApplication',
     // 📎 ระยะ 2 — private Drive files; the engine decides, Apply.gs holds the bytes
     'uploadApplicationDoc', 'applicationDocFile', 'deleteApplicationDoc',
+    /* 💵 ค่าดูแลวันหยุด (2026-11-13) — src/HolidayCare.gs runs engineDispatch_('holidayAttendSet') FIRST
+     * (the list, the prices, the bills and the paid-bill lock all decided there) and then tells each
+     * family on the parent.bill topic, which the engine cannot. Same shape as the four above.
+     * tools/test_holiday_care.js runs the engine rules AND the route against the old sheet header. */
+    'holidayAttendSet',
     /* approvePayslip / adjustStaffPay / payAdjustHistory (2026-10-05) — shadowed for the same reason
      * as the two above. STAFF and PAYROLL are written by the engine as WHOLE COLLECTIONS, and STAFF
      * is in NO_SHRINK_SHEETS besides: a pay rise going out through a collection rewrite would carry

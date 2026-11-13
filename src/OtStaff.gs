@@ -101,8 +101,19 @@ function handleAdminAddHolidayOT(p) {
   var seen = {}, targets = [];
   ids.forEach(function (id) { if (!seen[id]) { seen[id] = 1; targets.push(id); } });
   if (!targets.length) throw apiError_('BAD_INPUT', 'เลือกพนักงานอย่างน้อย 1 คน');
-  var amount = Number(p.amount) || 0;
-  if (amount <= 0) throw apiError_('BAD_INPUT', 'ระบุจำนวนเงิน OT');
+  /* 💵 ONE AMOUNT EACH (ผอ., 2026-11-13): "ใส่ข้อมูลรายได้ของคุณครูที่จะได้ในวันนั้น" — two teachers on the
+   * same Saturday are not always paid the same. p.amounts = { staffId: baht }; p.amount stays the
+   * fallback so an older screen still works. Every person must end up with a real amount above 0 —
+   * a blank is refused by name, never paid as ฿0. Mirrors adminAddHolidayOT in Engine.gs. */
+  var amounts = (p.amounts && typeof p.amounts === 'object') ? p.amounts : {};
+  var each = {};
+  targets.forEach(function (id) {
+    var v = Object.prototype.hasOwnProperty.call(amounts, id) ? amounts[id] : p.amount;
+    var n = Number(v);
+    if (!isFinite(n) || n <= 0) throw apiError_('BAD_INPUT', 'ระบุจำนวนเงิน OT ของ ' + ((otStaffById_(id) || {}).Name || id));
+    each[id] = Math.round(n * 100) / 100;
+  });
+  var amount = each[targets[0]];
   var note = String(p.note == null ? '' : p.note).trim();
   if (!note) throw apiError_('BAD_INPUT', 'ระบุรายละเอียดการทำงานวันหยุด');
   var date = p.date || dateStr_(new Date());
@@ -112,7 +123,7 @@ function handleAdminAddHolidayOT(p) {
     var st = otStaffById_(target);
     if (!st.StaffID) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + target);
     appendObject_(sh, {
-      OTRecordID: nextId_(sh, 'OTRecordID', 'OTR'), StaffID: target, Date: date, Hours: 0, Rate: 0, Amount: amount,
+      OTRecordID: nextId_(sh, 'OTRecordID', 'OTR'), StaffID: target, Date: date, Hours: 0, Rate: 0, Amount: each[target],
       ApprovedBy: ap.Name, Status: 'APPROVED', Minutes: 0, PlanOut: '', ActualOut: '', Month: String(date).slice(0, 7),
       Step1By: ap.Name, Step1Status: 'Approved', Step2By: ap.Name, Step2Status: 'Approved', Note: note, Kind: 'HOLIDAY'
     });
@@ -122,13 +133,13 @@ function handleAdminAddHolidayOT(p) {
      * from their pay is the one person who was not told. It lands in their own 🔔 bell (the same
      * per-staff inbox their leave decisions use), not the shared Admin one. */
     try {
-      inboxAdd_('ot', '🎉 OT วันหยุด ' + date + ' · ' + amount + ' บาท\n' + note +
+      inboxAdd_('ot', '🎉 OT วันหยุด ' + date + ' · ' + each[target] + ' บาท\n' + note +
         '\n(บันทึกโดย ' + (ap.Name || 'แอดมิน') + ' · จะรวมในเงินเดือนเดือน ' + String(date).slice(0, 7) + ')',
         'ot|' + target + '|' + date, target);
     } catch (e) {}
   });
   otBust_();
-  return { count: added.length, date: date, amount: amount, staffIds: added, status: 'APPROVED' };
+  return { count: added.length, date: date, amount: amount, amounts: each, staffIds: added, status: 'APPROVED' };
 }
 
 /** Admin edits any OT. payload: { staffId, otId, hours?, amount?, note?, date? } */

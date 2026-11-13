@@ -168,6 +168,8 @@ const MONEY = new Set([
   // the OT charge BEFORE a discount — `Amount` is what is billed, this is what it would have been,
   // and the difference is the discount an admin gave and has to be able to justify
   'FullAmount',
+  // ค่าดูแลวันหยุด — what one child is charged for one closed day (HOLIDAY_ATTEND)
+  'Fee',
   // payroll — every one of these is a figure on somebody's payslip
   'BaseSalary', 'NetPay', 'GrossIncome', 'AdjustmentsTotal', 'DiligenceTotal', 'ExtraChildAmount',
   'HolidayBonus', 'OtherDeductions', 'TotalDeductions', 'TrainingCertAmount',
@@ -199,6 +201,8 @@ const MONEY = new Set([
 const NOT_MONEY = new Set([
   // ติ๊กหักประกันสังคม / หักภาษี — ใช่/ไม่ใช่ ไม่ใช่จำนวนเงิน (ชนิด boolean อยู่ใน SHEET_TYPE) · W4 3d 2026-11-11
   'SocialSecurityDeduct', 'TaxDeduct',
+  // HOLIDAY_ATTEND.FeeStatus — 'SET' | 'PENDING' | '' : whether the day's price was decided, not a price
+  'FeeStatus',
   /* EnableChildRate (2026-10-29) — สวิตช์ว่าครูคนนี้ได้ "เรทจำนวนเด็ก" หรือไม่ ไม่ใช่จำนวนเงิน
      ตั้งชื่อขึ้นต้นด้วย Enable เพื่อให้ BOOL_PREFIX จับได้เองและลงเป็น boolean —
      ไม่ใช่ numeric(12,2) ที่จะเก็บคำว่า 'true' ไม่ได้ · ชื่อที่ตรงกติกาดีกว่าข้อยกเว้นที่ต้องจำ */

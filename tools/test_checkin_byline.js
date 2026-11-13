@@ -112,7 +112,7 @@ console.log('\n2) a teacher recording on behalf, through the LIVE route');
      * honours it (isHolidayAttendee_). So the day the test runs stops being an input, and the path
      * it exercises is still the real one. */
     appendObject_(sheet_(MAIN, 'HOLIDAY_ATTEND'), { Date: dateStr_(new Date()), StudentID: 'S9',
-      AddedBy: 'STF-T', AddedAt: 'test-fixture' });
+      AddedBy: 'STF-T', AddedAt: '2026-09-01 08:00:00' });
     _configCache = null;
 
     var out = { steps: [] };

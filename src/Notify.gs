@@ -499,6 +499,7 @@ function handleAddChildNew(p) { return handleRegNotify_('addChildNew', p, false)
 
 // ---- daily digests (skip weekends + holidays) ----------------------------------------------------
 function digestEvening_() {
+  if (typeof freezeSkip_ === 'function' && freezeSkip_('digestEvening_')) return;      // 🧊 WRITE_FREEZE (src/Freeze.gs)
   if (isSchoolClosed_(new Date())) return;
   if (String(getConfig_('DigestEvening', 'true')) !== 'true') return;
   var today = dateStr_(new Date());
@@ -534,6 +535,7 @@ function digestEvening_() {
   notifyAdmins_(lines.join('\n'), 'digest');
 }
 function digestMorning_() {
+  if (typeof freezeSkip_ === 'function' && freezeSkip_('digestMorning_')) return;      // 🧊 WRITE_FREEZE (src/Freeze.gs)
   if (isSchoolClosed_(new Date())) return;
   if (String(getConfig_('DigestMorning', 'true')) !== 'true') return;
   var today = dateStr_(new Date());
