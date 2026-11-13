@@ -107,7 +107,10 @@ const reset = () => { log = []; persisted = []; hydrations = 0; };
   /* staffCheckout, staffStudentCheckin, then submitTimeRequest were the example until each was ported (W3,
    * 2026-11-10). submitJournal is a teacher write that stays on Apps Script (Drive photos). */
   ok_('ครูส่งสมุดบันทึก (route ที่อยู่ Apps Script) → NOT_ON_FAST_HOST ไม่ใช่ "สำเร็จ" แล้วหาย', code(await call({ action: 'submitJournal', payload: {} })) === 'NOT_ON_FAST_HOST');
-  ok_('ทั้งหมดข้างบน: ไม่มีคำสั่งเขียนถึงฐานข้อมูล', writesIn().length === 0 && persisted.length === 0);
+  /* 2026-11-13: the closed getConfig above is now RECORDED, as Apps Script records it (test_fast_host_audit) —
+   * that audit row is the only statement allowed to write; nothing else may */
+  ok_('ทั้งหมดข้างบน: ไม่มีคำสั่งเขียนถึงฐานข้อมูล นอกจากบันทึกตรวจสอบของ route ที่ปิด', writesIn().every(s => /^insert into audit_log /i.test(s)) && persisted.length === 0);
+  ok_('...และบันทึกนั้นมีจริง (getConfig ที่ซ่อนใน batch)', writesIn().some(s => /^insert into audit_log /i.test(s)));
 
   console.log('\n3) 🔴 การเขียนที่ยังไม่ได้พิสูจน์ → ปฏิเสธ ไม่บันทึก');
   reset();

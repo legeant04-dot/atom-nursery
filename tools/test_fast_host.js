@@ -156,9 +156,11 @@ console.log('\n7) หนี้ที่รู้ตัว ต้องเขี�
 {
   const host = R('server/host.js');
   ok_('🔴 เขียนกฎ PDPA ไว้ในไฟล์', /ข้อตกลงประมวลผลข้อมูลจะลงนาม/.test(host));
-  ok_('บอกว่ายังไม่ได้ต่อ "ออกจากระบบทุกเครื่อง"', /sessionEpochOf_/.test(host));
+  // 2026-11-13: wired (SessionEpochs read after connect) — the debt list now says so; test_fast_host_revoke proves it
+  ok_('"ออกจากระบบทุกเครื่อง" ต่อแล้ว และบอกไว้ในรายการหนี้', /✅ ต่อ "ออกจากระบบทุกเครื่อง" แล้ว/.test(host) && /SESSION_EPOCH_KEY/.test(host));
   ok_('บอกสถานะด่าน / ล็อก / การเขียนไว้ในรายการหนี้', /server\/gate\.js/.test(host) && /pg_advisory_xact_lock/.test(host) && /write_proven/.test(host));
-  ok_('บอกว่า CORS ยังเปิดกว้าง ต้องล็อกก่อนรับข้อมูลจริง', /ล็อก CORS/.test(host));
+  // 2026-11-13: locked to the app's origins (test_fast_host_cors)
+  ok_('CORS ล็อกเป็นโดเมนของเราแล้ว ไม่มี * เหลือ', /✅ ล็อก CORS/.test(host) && !/'access-control-allow-origin': '*'/.test(host));
 }
 
 // ============================================================================

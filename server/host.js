@@ -32,7 +32,7 @@ const path = require('path');
 const { connect } = require(path.join(__dirname, '..', 'tools', 'pg_lib.js'));
 const PG = require(path.join(__dirname, '..', 'tools', 'pg_engine.js'));
 const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.js'));
-const { verifySession } = require(path.join(__dirname, 'session.js'));
+const { verifySession, parseEpochs, epochOf, SESSION_EPOCH_KEY } = require(path.join(__dirname, 'session.js'));
 const GATE = require(path.join(__dirname, 'gate.js'));
 const { WRITE_PROVEN } = require(path.join(__dirname, 'write_proven.js'));
 const ROUTES_PORT = require(path.join(__dirname, 'routes.js'));
@@ -67,6 +67,27 @@ const NARROW_SAFE = {
   parentDue: 1, financeSummary: 1, payrollConfig: 1
 };
 
+/* ── 🔒 WHO MAY CALL FROM A BROWSER (2026-11-13) ────────────────────────────────────────────────
+ * Only the app's own pages. `*` was right while this answered fabricated data to a speed test; it is
+ * not right for children's records. The list is the school's two homes — GitHub Pages today, the
+ * domain DOMAIN_MOVE.md moves to — and the Android app is a Trusted Web Activity, so it arrives with
+ * the same origin as the website (docs/ANDROID_APK.md). LINE's in-app browser loads the same page.
+ *
+ *   Origin on the list   → answered, with that one origin echoed back (never `*`) and Vary: Origin
+ *   Origin NOT on it     → 403 BAD_ORIGIN before the body is read — no session check, no database
+ *   no Origin at all     → answered without CORS headers: a server or a test, not a browser page.
+ *                          The session token still decides everything, exactly as before.
+ *
+ * ALLOWED_ORIGINS (comma list) replaces the default — Cloud Run sets it; nothing else needs to. */
+const DEFAULT_ORIGINS = ['https://legeant04-dot.github.io', 'https://atomnurseryapp.com', 'https://www.atomnurseryapp.com'];
+const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || DEFAULT_ORIGINS.join(','))
+  .split(',').map(s => s.trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean));
+function corsFor(req) {
+  const o = String((req && req.headers && req.headers.origin) || '').trim();
+  if (!o) return { state: 'none' };
+  return ALLOWED_ORIGINS.has(o.toLowerCase()) ? { state: 'ok', origin: o } : { state: 'bad', origin: o };
+}
+
 const jsonOut = (res, obj, status) => {
   /* 🔴 `__id` NEVER LEAVES THE HOST. It is the Postgres row id pg_engine puts on every row so persist
    * can update in place; Apps Script has no such field, so a handler that returns a row (classList,
@@ -76,10 +97,10 @@ const jsonOut = (res, obj, status) => {
   res.writeHead(status || 200, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(s),
-    /* เบราว์เซอร์เรียกข้ามโดเมน — โฮสต์นี้อยู่คนละที่กับหน้าเว็บ
-     * 🔴 `*` ใช้ได้ตอนวัดความเร็วบนข้อมูลจำลองเท่านั้น ก่อนรับข้อมูลจริงต้องล็อกเป็นโดเมนของเรา */
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type',
+    /* เบราว์เซอร์เรียกข้ามโดเมน — เฉพาะหน้าเว็บของแอปเท่านั้น (corsFor ข้างบน) */
+    ...(res.atomOrigin ? { 'access-control-allow-origin': res.atomOrigin, 'access-control-allow-headers': 'content-type',
+                           'access-control-allow-methods': 'POST, GET, OPTIONS' } : {}),
+    'vary': 'Origin',
     'cache-control': 'no-store'
   });
   res.end(s);
@@ -91,6 +112,26 @@ const reply = (res, action, o) => jsonOut(res, Object.assign({ a: action }, o));
 /* 🧊 the switch src/Freeze.gs sets — same words as Apps Script so the app shows one message */
 const WRITE_FROZEN_MSG = 'ระบบกำลังปรับปรุงชั่วคราว — ดูข้อมูลได้ตามปกติ แต่ยังบันทึกไม่ได้ กรุณาลองใหม่ภายหลัง';
 const isFrozen = cfg => String((cfg && cfg.WriteFreeze) || '').trim().toLowerCase() === 'on';
+
+/* 🔒 A CLOSED ROUTE THAT WAS CALLED IS WRITTEN DOWN (2026-11-13) — the same row Code.gs dispatch_ and
+ * GasEngine handleBatch write: ('system', 'CLOSED_ROUTE_CALLED', 'API', action[+' (batch)']). Those
+ * calls are somebody trying doors that no screen opens (getConfig handed out the SlipOK key once), and
+ * the audit log is where the school would see it. This host answered UNKNOWN_ACTION and wrote nothing,
+ * so probing over the fast path left no trace at all.
+ * AFTER the answer, on its own connection, and never an error: auditing must not break a request
+ * (Audit.gs's rule). Only a signed session reaches here — a stranger without a token is refused first
+ * and cannot fill the log. */
+async function auditClosed_(tenant, list) {
+  if (!list || !list.length) return;
+  let c;
+  try {
+    ({ client: c } = await connect());
+    await PG.applySheetOps(c, tenant, list.map(a => ({ op: 'insert', sheet: 'AUDIT_LOG',
+      row: { Timestamp: new Date(), UserID: 'system', Action: 'CLOSED_ROUTE_CALLED', TableName: 'API', RecordID: a } })));
+    await PG.bumpCacheVersions(c, tenant, ['AUDIT_LOG']);
+  } catch (e) { try { console.log('AUDIT FAIL (closed route): ' + ((e && e.message) || e)); } catch (x) {} }
+  finally { if (c) { try { await c.end(); } catch (e) {} } }
+}
 
 async function handle(req, res, body) {
   const t0 = Date.now();
@@ -120,8 +161,10 @@ async function handle(req, res, body) {
   const isObs = String(sess.role) === 'Observer';
   const OWN_SESSION = 'signOutEverywhere';
   if (!isBatch && GATE.isClosed(action)) {
-    return reply(res, action, { ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
+    reply(res, action, { ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
+    return auditClosed_(tenant, [action]);
   }
+  const closedSeen = new Set();          // closed calls inside a batch — recorded once, after the answer
   if (!isBatch && isObs && GATE.isMutating(action) && action !== OWN_SESSION) {
     return reply(res, action, { ok: false, error: { code: 'READ_ONLY', message: GATE.observerMessage() } });
   }
@@ -156,6 +199,19 @@ async function handle(req, res, body) {
       const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
       const cfgRows = [];                 // SCHOOL_CONFIG as a sheet, from the same query — for server/routes.js
       M.config = await PG.hydrateConfig(client, tenant, { rows: cfgRows });
+      /* 🔴 "ออกจากระบบทุกเครื่อง" (2026-11-13) — the signature only proves WHO minted the token, not that it is
+       * still wanted. Auth.gs refuses a token older than its uid's SessionEpochs entry; this path did not, so
+       * a phone that was lost and revoked kept working here. Read from the SCHOOL_CONFIG rows just fetched
+       * (school_config is read ONCE per request — test_fast_routes_live holds that), and checked BEFORE any
+       * handler runs, in both attempts. Same Thai message as Apps Script. */
+      {
+        const er = cfgRows.find(x => String(x.Key) === SESSION_EPOCH_KEY);
+        const ep = epochOf(parseEpochs(er && er.Value), sess.uid);
+        if (ep && !(Number(sess.iat) >= ep)) {
+          if (locked) await client.query('rollback');
+          return { refused: { ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } }, t: {} };
+        }
+      }
       const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
       /* 🧊 WRITE_FREEZE (src/Freeze.gs) — SCHOOL_CONFIG WriteFreeze, read in THIS attempt: the locked attempt
        * re-reads it after taking the school's lock, so a write that waited behind freezeWrites() sees it */
@@ -185,6 +241,7 @@ async function handle(req, res, body) {
         const a = String((c && c.action) || '');
         /* ลำดับเดียวกับ dispatch_ + handleBatch ของ GAS · และประตูที่ปิดถูกตรวจ "ทุก call"
          * (GAS เคยตรวจแค่ระดับบน — ช่องที่พบและปิดไปแล้วใน @399) */
+        if (a !== 'batch' && GATE.isClosed(a)) closedSeen.add(a + ' (batch)');
         if (a === 'batch' || GATE.isClosed(a)) return err('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + a);
         if (isObs && GATE.isMutating(a) && a !== OWN_SESSION) return err('READ_ONLY', GATE.observerMessage());
         if (frozen && GATE.isMutating(a)) return err('WRITE_FROZEN', WRITE_FROZEN_MSG);
@@ -335,10 +392,14 @@ async function handle(req, res, body) {
     return reply(res, action, { ok: false, error: { code: 'INTERNAL', message: (e && e.message) || String(e) } });
   } finally {
     if (client) { try { await client.end(); } catch (e) {} }
+    if (closedSeen.size) await auditClosed_(tenant, [...closedSeen]);
   }
 }
 
 const server = http.createServer((req, res) => {
+  const cors = corsFor(req);
+  if (cors.state === 'bad') { jsonOut(res, { ok: false, error: { code: 'BAD_ORIGIN', message: 'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้' } }, 403); req.resume(); return; }
+  if (cors.state === 'ok') res.atomOrigin = cors.origin;
   if (req.method === 'OPTIONS') { jsonOut(res, {}, 204); return; }
   if (req.method === 'GET') {
     // 🔴 ไม่ตอบ ok:true — เคยตอบแบบนั้นแล้ว client เอา health check ไปใช้เป็นข้อมูล (บั๊ก v186)
@@ -357,12 +418,12 @@ if (require.main === module) {
   server.listen(PORT, () => console.log('atom-fast-host :' + PORT + '  tenant=' + (TENANT || '(จาก token)')));
 }
 
-module.exports = { server, handle };
+module.exports = { server, handle, corsFor, ALLOWED_ORIGINS };
 
 /* ═══════════════════════════════════════════════════════════════════════════════════════════
  * 🔴 ยังไม่ครบ — รายการนี้คือหนี้ที่รู้ตัว ไม่ใช่ของที่ลืม
  *
- *   ⬜ ต่อ "ออกจากระบบทุกเครื่อง" (sessionEpochOf_) — token ที่ถูกเพิกถอนยังใช้ได้บนเส้นนี้
+ *   ✅ ต่อ "ออกจากระบบทุกเครื่อง" แล้ว (2026-11-13) — อ่าน SessionEpochs จากแถวตั้งค่าที่โหลดอยู่แล้ว ก่อน handler ใดๆ (test_fast_host_revoke)
  *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
  *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
@@ -372,8 +433,11 @@ module.exports = { server, handle };
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
  *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
  *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)
- *   ⬜ ล็อก CORS เป็นโดเมนของเรา ก่อนรับข้อมูลจริง
- *   ⬜ บันทึกตรวจสอบ PDPA (36 route)
+ *   ✅ ล็อก CORS เป็นโดเมนของเราแล้ว (2026-11-13) — ALLOWED_ORIGINS · อื่น = 403 BAD_ORIGIN (test_fast_host_cors)
+ *   ✅ บันทึกตรวจสอบ PDPA (2026-11-13): route ที่ย้ายมารันโค้ด Apps Script ตัวจริง — logAudit/logAuditHr ลง
+ *      audit_log/hr_audit_log ในธุรกรรมเดียวกับการเขียน (routes.js) · route ที่ยังไม่ย้ายถูกส่งกลับ Apps Script
+ *      ทั้งคำขอ จึงบันทึกที่นั่น · engine ไม่บันทึกทั้งสองฝั่ง · ช่องที่เหลือคือ CLOSED_ROUTE_CALLED → auditClosed_
+ *      (test_fast_host_audit)
  *
  * และกฎที่ใหญ่กว่าทุกข้อข้างบน:
  * 🔴 **ห้ามมีข้อมูลนักเรียนจริงแตะโฮสต์นี้ จนกว่าข้อตกลงประมวลผลข้อมูลจะลงนาม** (Phase 1.5)
