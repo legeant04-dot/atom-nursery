@@ -139,15 +139,15 @@ console.log('\n3) How long a session survives being left alone');
 {
   const ctx = { SESSION_TTL_SEC: 43200, SESSION_TTL_BY_ROLE_: null };
   vm.createContext(ctx);
-  vm.runInContext(auth.slice(auth.indexOf('var SESSION_TTL_BY_ROLE_'), auth.indexOf('/* ---- REVOKING SESSIONS')), ctx);
+  vm.runInContext(auth.slice(auth.indexOf('var SESSION_LONG_TTL_SEC_'), auth.indexOf('/* ---- REVOKING SESSIONS')), ctx);
   const D = 24 * 3600;
-  eq('parent 30 days', ctx.sessionTtlFor_('Parent'), 30 * D);
-  eq('teacher 14 days', ctx.sessionTtlFor_('Teacher'), 14 * D);
-  /* NOT LENGTHENED, and this is the deliberate half of the answer. An Admin session sees every
-   * family's records and the school's money; a parent session sees their own children. */
-  eq('admin stays at 12h', ctx.sessionTtlFor_('Admin'), 43200);
-  eq('leader stays at 12h', ctx.sessionTtlFor_('Leader'), 43200);
-  eq('observer stays at 12h', ctx.sessionTtlFor_('Observer'), 43200);
+  /* 2026-11-14 — ผอ. 12/11: every role stays signed in 90 days. The admin's money is guarded by a PIN
+   * every 12 hours (pinGate_, tools/test_pin.js), which is what made lengthening the admin safe. */
+  eq('parent 90 days', ctx.sessionTtlFor_('Parent'), 90 * D);
+  eq('teacher 90 days', ctx.sessionTtlFor_('Teacher'), 90 * D);
+  eq('admin 90 days', ctx.sessionTtlFor_('Admin'), 90 * D);
+  eq('leader 90 days', ctx.sessionTtlFor_('Leader'), 90 * D);
+  eq('observer 90 days', ctx.sessionTtlFor_('Observer'), 90 * D);
   eq('guest stays at 12h', ctx.sessionTtlFor_('guest'), 43200);
   eq('an unknown role falls back to the SHORT default', ctx.sessionTtlFor_('Whatever'), 43200);
   eq('no role at all falls back too', ctx.sessionTtlFor_(''), 43200);
@@ -157,7 +157,8 @@ console.log('\n4) A token can be taken back');
 {
   const store = {};
   const ctx = {
-    Date, JSON, Object, Number, String, isFinite, console,
+    Date, JSON, Object, Number, String, isFinite, console, Math,
+    SESSION_TTL_SEC: 43200, SESSION_TTL_BY_ROLE_: { Parent: 90 * 24 * 3600, Admin: 90 * 24 * 3600 },
     getConfig_: (k, d) => (store[k] === undefined ? d : store[k]),
     setConfigValue_: (k, v) => { store[k] = v; return v; }
   };
@@ -179,11 +180,14 @@ console.log('\n4) A token can be taken back');
   eq('a blank value means nobody is revoked', ctx.sessionEpochOf_('U1'), 0);
 
   // an epoch older than the longest possible session can no longer refuse anything
-  store.SessionEpochs = JSON.stringify({ OLD: Date.now() - 40 * 24 * 3600 * 1000, KEEP: Date.now() - 1000 });
+  /* 🔴 and one YOUNGER than it still can: MID (40 days) must survive — a 90-day token minted before it is
+   * still alive. Pruning at 30 days (the old longest TTL) would have let that token back in. */
+  store.SessionEpochs = JSON.stringify({ OLD: Date.now() - 100 * 24 * 3600 * 1000, MID: Date.now() - 40 * 24 * 3600 * 1000, KEEP: Date.now() - 1000 });
   ctx.bumpSessionEpoch_('NEW');
   const after = JSON.parse(store.SessionEpochs);
   ok_('dead entries are pruned, so the cell cannot grow forever', !('OLD' in after));
   ok_('...but a live one is kept', 'KEEP' in after && 'NEW' in after);
+  ok_('🔴 ...and one 40 days old is KEPT — a 90-day token minted before it is still alive', 'MID' in after);
 }
 
 console.log('\n5) verifySession_ refuses a revoked token, however good the signature is');
@@ -232,6 +236,7 @@ console.log('\n6) Who may sign whom out');
     const ctx = {
       Date, JSON, Object, Number, String, isFinite, console,
       SESSION_EPOCH_KEY_: 'SessionEpochs',   // declared outside the functions being cut
+      Math, SESSION_TTL_SEC: 43200, SESSION_TTL_BY_ROLE_: { Parent: 90 * 24 * 3600 },   // bumpSessionEpoch_ prunes at the longest TTL
       getConfig_: (k, d) => (store[k] === undefined ? d : store[k]),
       setConfigValue_: (k, v) => { store[k] = v; return v; },
       apiError_: (c, m) => Object.assign(new Error(m), { apiCode: c }),

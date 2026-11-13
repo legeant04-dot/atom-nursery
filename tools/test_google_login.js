@@ -110,7 +110,7 @@ console.log('1) it opens onto exactly the account LINE opens onto');
    * single constant — a parent's session survives 30 days of not opening the app. Asserted here
    * because the whole design of the Google route is that it produces a session indistinguishable
    * from a LINE one; a door that quietly issued a shorter token would be a door with different rules. */
-  eq('...and a parent lifetime, the same as the LINE door gives', Math.round((payload.exp - Date.now()) / 3600000), 30 * 24);
+  eq('...and a parent lifetime, the same as the LINE door gives', Math.round((payload.exp - Date.now()) / 3600000), 90 * 24);   // 2026-11-14: every role 90 days
 }
 {
   // a teacher gets a teacher's session, from the same call
@@ -403,7 +403,7 @@ console.log('\n6e) an account that has been MOVED takes effect');
    * hand it is deep past the halfway point and renewing it is the right answer; a full fresh
    * lifetime is what "left alone" has to mean. */
   const early = call(ctx, 'function(){' +
-    ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + sessionTtlFor_("Teacher")*1000 }); }');
+    ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", iat: Date.now(), exp: Date.now() + sessionTtlFor_("Teacher")*1000 }); }');
   eq('a fresh token is left alone', early.v, '');
   const late = call(ctx, 'function(){' +
     ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + 12*3600*1000 }); }');

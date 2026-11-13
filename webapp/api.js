@@ -877,7 +877,7 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     // lending a teacher to another class for a few days — "class…" is not a mutating verb either
     classCoverAdd: 1, classCoverRemove: 1,
     adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
-    adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
+    pinSet: 1, pinVerify: 1, pinReset: 1, adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
     commentAssessment: 1,  // writes a note onto an assessment row; "comment" is not a mutating verb
     // who is expected on a closed day — none of the three starts with a mutating verb
     holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1,
@@ -974,6 +974,20 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     return _reauthP;
   }
   const isDeadSession = e => !!(e && (e.code === 'NO_SESSION' || e.code === 'INVALID_TOKEN'));
+  /* 🔐 A MONEY ACTION WITHOUT A FRESH PIN (2026-11-14, pinGate_ in Code.gs). Refused BEFORE the handler
+   * runs — on Apps Script and on the fast host alike — so nothing was written and repeating the call
+   * after the admin types the PIN is safe, the same argument as NO_SESSION above. One prompt is shared
+   * by every call waiting on it (a batch can hold several money calls). The prompt resolves false when
+   * the admin cancels; the original PIN_REQUIRED then reaches the screen as an ordinary error. */
+  let _pinP = null;
+  function pinConfirm() {
+    if (_pinP) return _pinP;
+    _pinP = Promise.resolve()
+      .then(() => (typeof window.__atomPinPrompt === 'function' ? window.__atomPinPrompt() : false))
+      .then(ok => { _pinP = null; return !!ok; })
+      .catch(() => { _pinP = null; return false; });
+    return _pinP;
+  }
   /* ---- measure what the user WAITED for, not what the clock did ---------------------------------
    *
    * A request that is in flight when the phone is locked, or the app is switched away from, does not
@@ -1113,6 +1127,12 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
      * time hunting a problem that had already fixed itself. A recovered failure is now marked as
      * such, so the report can tell "broke and healed" from "broke". */
     const send = () => enqueueGas(action, payload).catch(e => {
+      if (e && e.code === 'PIN_REQUIRED') {
+        return pinConfirm().then(ok => {
+          if (!ok) throw e;
+          return enqueueGas(action, payload).then(d => { PERF.mark('pinOk', action, 0); return d; });
+        });
+      }
       if (!isDeadSession(e) || action === 'auth') throw e;
       return reauth().then(ok => {
         /* LINE CANNOT VOUCH FOR THEM EITHER — say so instead of painting a red error.

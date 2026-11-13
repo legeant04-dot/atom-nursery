@@ -48,8 +48,10 @@ PG.hydrateFast = async (client, tenant, keys) => {
 
 const { handle } = require(path.join(ROOT, 'server', 'host.js'));
 const { sign_ } = require(path.join(ROOT, 'server', 'session.js'));
-const tokenFor = (uid, role, id) => { const b = Buffer.from(JSON.stringify({ uid, role, linkedId: id, iat: Date.now(), exp: Date.now() + 3600e3 })).toString('base64'); return b + '.' + sign_(b, SECRET); };
-const TOKEN = tokenFor('U-T', 'Teacher', 'STF-002'), ADMIN = tokenFor('U-A', 'Admin', 'STF-001');
+const tokenFor = (uid, role, id, extra) => { const b = Buffer.from(JSON.stringify(Object.assign({ uid, role, linkedId: id, iat: Date.now(), exp: Date.now() + 3600e3 }, extra || {}))).toString('base64'); return b + '.' + sign_(b, SECRET); };
+/* the admin has typed their PIN (pa) — otherwise money routes answer PIN_REQUIRED at the door, which is
+ * right but is not the question section 6 asks (tools/test_pin.js asks that one) */
+const TOKEN = tokenFor('U-T', 'Teacher', 'STF-002'), ADMIN = tokenFor('U-A', 'Admin', 'STF-001', { pa: Date.now() });
 async function call(msg, token) {
   let out = ''; ops = []; bumps = [];
   const res = { setHeader() {}, writeHead() {}, end(s) { out = s; } };

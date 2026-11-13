@@ -81,8 +81,41 @@ function identity(action, payload, sess, M) {
   return b.applyIdentity_(action, payload || {}, sess);
 }
 
+/* ── 🔁 RENEWAL ON THE FAST HOST (2026-11-14) ───────────────────────────────────────────────────────
+ * Apps Script renews a token on use (Auth.gs renewSession_, once a day) and re-derives the person's
+ * role and record while it does. This host renewed nothing, so after go-live — when nearly every
+ * request comes here — an active user's token would have died on its date regardless of the 90-day
+ * promise. Auth.gs's OWN renewSession_ runs here (not a copy): its identity lookup reads USERS,
+ * PARENTS and STAFF from the rows passed in, its signature uses the same SESSION_SECRET, and
+ * Utilities is the two calls it needs, byte-for-byte what Apps Script produces (test_fast_host_renew
+ * checks a host-minted token against Auth.gs's verifySession_ and the other way round). */
+const NEED_RENEW_SHEETS = ['USERS', 'PARENTS', 'STAFF'];
+function renewDue(sess, now) {
+  const b = load();
+  const t = now == null ? Date.now() : Number(now);
+  return !!(sess && sess.exp && sess.exp - t > 0 && (t - (Number(sess.iat) || 0)) >= b.SESSION_RENEW_AFTER_MS_);
+}
+function renew(sess, sheets, secret) {
+  const b = load();
+  const rows = sheets || {};
+  b.getMainSpreadsheet_ = () => 'MAIN';
+  b.getHrSpreadsheet_ = () => 'HR';
+  b.sheet_ = (wb, name) => name;
+  b.readObjects_ = name => (rows[name] || []).map(r => Object.assign({}, r));
+  b.findObject_ = (name, pred) => (rows[name] || []).find(pred) || null;
+  b.sessionSecret_ = () => secret;
+  b.Utilities = {
+    base64EncodeWebSafe: v => (Array.isArray(v) ? Buffer.from(v.map(x => x & 255)) : Buffer.from(String(v), 'utf8'))
+      .toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
+    computeHmacSha256Signature: (v, k) => Array.from(require('crypto').createHmac('sha256', String(k)).update(String(v), 'utf8').digest())
+      .map(x => (x > 127 ? x - 256 : x))
+  };
+  try { return b.renewSession_(sess) || ''; } finally { delete b.Utilities; }
+}
+
 module.exports = {
   identity,
+  renew, renewDue, NEED_RENEW_SHEETS,
   isMutating: a => load().isMutatingAction_(a),
   isPublic: a => load().publicAction_(a),
   /** Live runs a Code.gs route for this, not the engine — the host must not answer it. */

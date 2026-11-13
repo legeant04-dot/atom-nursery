@@ -31,9 +31,12 @@ const { sign_ } = require(path.join(ROOT, 'server', 'session.js'));
 const ALL = Object.keys(PG.COLLECTIONS);
 
 const REAL_NOW = Date.now();
+/* 🔐 an admin who has typed their PIN (pa, 2026-11-14) — money routes ask for it at the door
+ * (tools/test_pin.js). The REAL clock: the gate's sandbox has its own Date, never the frozen one. */
+const PA_NOW = (typeof RealDate === 'function' ? RealDate : Date).now();
 const tokenFor = (role, linkedId, uid) => {
-  const b = Buffer.from(JSON.stringify({ uid, role, linkedId, iat: REAL_NOW, exp: REAL_NOW + 3600e3 })).toString('base64');
-  return { sess: { uid, role, linkedId }, token: b + '.' + sign_(b, SECRET) };
+  const b = Buffer.from(JSON.stringify(Object.assign({ uid, role, linkedId, iat: REAL_NOW, exp: REAL_NOW + 3600e3 }, role === 'Admin' ? { pa: PA_NOW } : {}))).toString('base64');
+  return { sess: Object.assign({ uid, role, linkedId }, role === 'Admin' ? { pa: PA_NOW } : {}), token: b + '.' + sign_(b, SECRET) };
 };
 const A = tokenFor('Admin', 'STF-A', 'U-A'), T = tokenFor('Teacher', 'STF-T', 'U-T'), OBS = tokenFor('Observer', 'STF-O', 'U-O');
 

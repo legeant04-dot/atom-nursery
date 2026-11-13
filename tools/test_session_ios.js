@@ -68,8 +68,12 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
      * per-role: a parent's 30-day token measured against a 6-hour half-life is inside "past
      * halfway" from the first minute, so every single request would have reissued a token —
      * an HMAC and an identity lookup each time, for nothing. */
-    ok_('it only fires past the halfway point OF THE CALLER\'S OWN TTL',
-      /var ttl = sessionTtlFor_\(sess\.role\) \* 1000;/.test(auth) && /left > ttl \/ 2\) return ''/.test(auth));
+    /* 2026-11-14: ONCE A DAY, not past half-life. Every role is 90 days now (ผอ. 12/11), and the promise
+     * is "open the app at least once every 90 days" — half-life would let a token used on day 30 die on
+     * day 90. A day keeps the cost at one identity lookup per person per day. */
+    ok_('it fires once the token is a day old (SESSION_RENEW_AFTER_MS_), not past half-life',
+      /\(Date\.now\(\) - \(Number\(sess\.iat\) \|\| 0\)\) < SESSION_RENEW_AFTER_MS_\) return ''/.test(auth) &&
+      /var SESSION_RENEW_AFTER_MS_ = 24 \* 3600 \* 1000;/.test(auth));
     ok_('an already-expired token is NOT renewed — that would be a way back in', /left <= 0/.test(auth));
     /* THE IDENTITY IS RE-DERIVED, NOT CARRIED FORWARD.
      *
@@ -82,13 +86,14 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
      *
      * The uid is still the only thing trusted from the old token; who that uid IS gets looked up
      * again. */
-    ok_('the renewed token re-derives the identity from the uid',
-      /var who = resolveIdentity_\(sess\.uid\);/.test(auth) && /issueSession_\(sess\.uid, who\.role, who\.linkedId\)/.test(auth));
+    ok_('the renewed token re-derives the identity from the uid (the PIN confirmation only follows an Admin)',
+      /var who = resolveIdentity_\(sess\.uid\);/.test(auth) && /issueSession_\(sess\.uid, who\.role, who\.linkedId, undefined, \{ pa: who\.role === 'Admin' \? sess\.pa : 0 \}\)/.test(auth));
     ok_('...and a uid that resolves to nobody is not renewed at all', /if \(!who\) return '';/.test(auth));
 
     // run it for real against a fake GAS runtime
-    const ctx = { Date, JSON, SESSION_TTL_SEC: 43200,
-      SESSION_TTL_BY_ROLE_: { Parent: 30 * 24 * 3600, Teacher: 14 * 24 * 3600 },
+    const L90 = 90 * 24 * 3600;
+    const ctx = { Date, JSON, Number, String, SESSION_TTL_SEC: 43200, SESSION_RENEW_AFTER_MS_: 24 * 3600 * 1000,
+      SESSION_TTL_BY_ROLE_: { Parent: L90, Teacher: L90, Admin: L90, Leader: L90, Observer: L90 },
       sessionSecret_: () => 'test-secret',
       ROLES: { PARENT: 'Parent' },
       // the lookup renewal now depends on — one staff row, so the identity comes back unchanged
@@ -99,9 +104,11 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
       for (let k = j; k < auth.length; k++) { if (auth[k] === '{') d++; else if (auth[k] === '}') { d--; if (!d) { e = k; break; } } } return auth.slice(i, e + 1); };
     vm.runInContext(cut('sessionTtlFor_') + '\n' + cut('issueSession_') + '\n' + cut('renewSession_') + '\n' + cut('resolveIdentity_'), ctx);
     const now = Date.now(), TTL = 43200 * 1000;
-    eq('fresh token (11h left): not renewed', ctx.renewSession_({ uid: 'U', exp: now + TTL * 0.9 }), '');
-    ok_('past halfway (5h left): renewed', !!ctx.renewSession_({ uid: 'U', exp: now + TTL * 0.4 }));
-    ok_('nearly gone (1 min left): renewed', !!ctx.renewSession_({ uid: 'U', exp: now + 60000 }));
+    const DAY = 24 * 3600 * 1000;
+    eq('issued an hour ago: not renewed', ctx.renewSession_({ uid: 'U', iat: now - 3600000, exp: now + 89 * DAY }), '');
+    ok_('issued two days ago: renewed', !!ctx.renewSession_({ uid: 'U', iat: now - 2 * DAY, exp: now + 88 * DAY }));
+    ok_('nearly gone (1 min left): renewed', !!ctx.renewSession_({ uid: 'U', iat: now - 90 * DAY + 60000, exp: now + 60000 }));
+    ok_('a token from before iat existed: renewed (treated as oldest)', !!ctx.renewSession_({ uid: 'U', exp: now + 60000 }));
     eq('already expired: refused', ctx.renewSession_({ uid: 'U', exp: now - 1000 }), '');
     eq('no session at all: refused', ctx.renewSession_(null), '');
 
@@ -109,25 +116,26 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
      * The tiering is the security decision, so it is pinned rather than left to whoever edits the
      * constant next: a parent sees their own children, an Admin sees every family and the money. */
     const D = 24 * 3600;
-    eq('parent: 30 days', ctx.sessionTtlFor_('Parent'), 30 * D);
-    eq('teacher: 14 days', ctx.sessionTtlFor_('Teacher'), 14 * D);
-    eq('ADMIN IS NOT LENGTHENED — money and every family\'s records', ctx.sessionTtlFor_('Admin'), 43200);
-    eq('leader likewise', ctx.sessionTtlFor_('Leader'), 43200);
-    eq('observer likewise', ctx.sessionTtlFor_('Observer'), 43200);
+    /* 2026-11-14 — the school's decision of 12/11: every role 90 days. Admin is lengthened ONLY because
+     * money no longer rides on the session alone: pinGate_ (Code.gs) asks a PIN every 12 hours. */
+    eq('parent: 90 days', ctx.sessionTtlFor_('Parent'), 90 * D);
+    eq('teacher: 90 days', ctx.sessionTtlFor_('Teacher'), 90 * D);
+    eq('admin: 90 days (money is guarded by the PIN, not the session)', ctx.sessionTtlFor_('Admin'), 90 * D);
+    eq('leader likewise', ctx.sessionTtlFor_('Leader'), 90 * D);
+    eq('observer likewise', ctx.sessionTtlFor_('Observer'), 90 * D);
+    ok_('...and the PIN gate exists, so the admin\'s long session does not mean unguarded money',
+      /function pinGate_\(action, payload, sess\)/.test(R('src/Code.gs')) && /var PIN_CONFIRM_MS_ = 12 \* 3600 \* 1000;/.test(R('src/Code.gs')));
     /* A half-finished registration on a borrowed phone must not linger for a month — and `guest`
      * can do nothing but register, so there is no convenience being bought by lengthening it. */
     eq('guest keeps the short default', ctx.sessionTtlFor_('guest'), 43200);
     eq('an unknown role falls back to the default, never to the longest', ctx.sessionTtlFor_('Nonsense'), 43200);
 
-    /* The renewal window follows the role, which is the whole reason the half-life had to change.
-     * 20 days left of a parent's 30 is NOT past halfway; the same 20 days on a teacher's 14-day
-     * token cannot happen, and 3 days left of 14 is. */
-    eq('parent with 20 of 30 days left: not renewed yet',
-      ctx.renewSession_({ uid: 'U', role: 'Parent', exp: now + 20 * D * 1000 }), '');
-    ok_('parent with 3 days left: renewed',
-      !!ctx.renewSession_({ uid: 'U', role: 'Parent', exp: now + 3 * D * 1000 }));
-    ok_('teacher with 3 of 14 days left: renewed',
-      !!ctx.renewSession_({ uid: 'U', role: 'Teacher', exp: now + 3 * D * 1000 }));
+    /* THE PROMISE, MEASURED: opened on day 30 and again on day 89 — still signed in. Half-life
+     * renewal would have let the day-30 token run out on day 90. */
+    ok_('parent who opened the app on day 30 (token a month old): renewed then',
+      !!ctx.renewSession_({ uid: 'U', role: 'Parent', iat: now - 30 * D * 1000, exp: now + 60 * D * 1000 }));
+    ok_('parent back on day 89 of a token: renewed',
+      !!ctx.renewSession_({ uid: 'U', role: 'Parent', iat: now - 89 * D * 1000, exp: now + 1 * D * 1000 }));
 
     /* ISSUED-AT IS WHAT MAKES A REVOKE POSSIBLE. Without it there is no way to say "everything
      * minted before this instant is dead", and a 30-day session on a lost phone could not be
@@ -135,7 +143,7 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     ok_('the token carries iat', /iat: now/.test(auth));
     ok_('...and exp is measured from it, per role', /exp: now \+ sessionTtlFor_\(role\) \* 1000/.test(auth));
     ok_('issueSession_ accepts an explicit instant, so a revoke can keep its own device alive',
-      /function issueSession_\(uid, role, linkedId, at\)/.test(auth) && /var now = Number\(at\) \|\| Date\.now\(\);/.test(auth));
+      /function issueSession_\(uid, role, linkedId, at, extra\)/.test(auth) && /var now = Number\(at\) \|\| Date\.now\(\);/.test(auth));
 
     const code = R('src/Code.gs');
     ok_('the renewed token rides back on a normal reply', /function withRenewal_/.test(code));

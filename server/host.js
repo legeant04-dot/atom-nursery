@@ -387,7 +387,21 @@ async function handle(req, res, body) {
     res.setHeader('x-atom-ms', JSON.stringify(Object.assign({ total: Date.now() - t0 }, r.t,
       r.saved ? { written: r.saved } : {}, lineSum ? { line: { mode: lineSum.mode, n: lineSum.n, sent: lineSum.sent, failed: lineSum.failed } } : {})));
     if (r.refused) return reply(res, action, r.refused);
-    return reply(res, action, isBatch ? { ok: true, data: r.results } : r.results[0]);
+    const out = isBatch ? { ok: true, data: r.results } : r.results[0];
+    /* 🔁 RENEWAL (2026-11-14) — Apps Script's withRenewal_, on the same terms: a reply that succeeded,
+     * a token past SESSION_RENEW_AFTER_MS_, Auth.gs's own renewSession_ (server/gate.js renew). The
+     * three identity sheets are read only then — once per person per day. A renewal that fails is not
+     * an error: the reply stands and the next request tries again. api.js picks `token` up as it
+     * does from Apps Script. */
+    if (out && out.ok && GATE.renewDue(sess)) {
+      try {
+        const sheets = {};
+        for (const sh of GATE.NEED_RENEW_SHEETS) sheets[sh] = await PG.readSheet(client, tenant, sh);
+        const tok = GATE.renew(sess, sheets, SECRET);
+        if (tok) out.token = tok;
+      } catch (e) { try { console.log('renew failed: ' + ((e && e.message) || e)); } catch (x) {} }
+    }
+    return reply(res, action, out);
   } catch (e) {
     return reply(res, action, { ok: false, error: { code: 'INTERNAL', message: (e && e.message) || String(e) } });
   } finally {

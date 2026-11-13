@@ -55,9 +55,12 @@ const THIS_MONTH = TODAY.slice(0, 7);
 const NEXT_MONTH = (() => { const [y, m] = THIS_MONTH.split('-').map(Number); return m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0'); })();
 const LAST_MONTH = (() => { const [y, m] = THIS_MONTH.split('-').map(Number); return m === 1 ? (y - 1) + '-12' : y + '-' + String(m - 1).padStart(2, '0'); })();
 
+/* 🔐 an admin who has typed their PIN (pa, 2026-11-14) — money routes ask for it at the door
+ * (tools/test_pin.js). The REAL clock: the gate's sandbox has its own Date, never the frozen one. */
+const PA_NOW = (typeof RealDate === 'function' ? RealDate : Date).now();
 const tokenFor = (role, linkedId, uid) => {
-  const b = Buffer.from(JSON.stringify({ uid, role, linkedId, iat: FROZEN, exp: FROZEN + 3600e3 })).toString('base64');
-  return { sess: { uid, role, linkedId }, token: b + '.' + sign_(b, SECRET) };
+  const b = Buffer.from(JSON.stringify(Object.assign({ uid, role, linkedId, iat: FROZEN, exp: FROZEN + 3600e3 }, role === 'Admin' ? { pa: PA_NOW } : {}))).toString('base64');
+  return { sess: Object.assign({ uid, role, linkedId }, role === 'Admin' ? { pa: PA_NOW } : {}), token: b + '.' + sign_(b, SECRET) };
 };
 const ADMIN = tokenFor('Admin', 'STF-A', 'U-A'), PARENT = tokenFor('Parent', 'PAR-1', 'U-P');
 

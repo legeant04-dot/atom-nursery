@@ -2559,6 +2559,91 @@
       ? 'Lost or replaced your phone, or used the app on someone else’s? This signs out every other device. This one keeps working.'
       : 'ทำมือถือหาย เปลี่ยนเครื่อง หรือเคยเปิดแอปในเครื่องคนอื่น? กดปุ่มนี้เพื่อออกจากระบบทุกเครื่องที่เหลือ · เครื่องนี้ใช้งานต่อได้ตามปกติ'}</p>
     <button class="btn sm outline block" onclick="SIGNOUT_ALL(this)">${ic('block')} ${EN()?'Sign out everywhere else':'ออกจากระบบอุปกรณ์อื่นทั้งหมด'}</button></div>`;
+  /* ════ 🔐 PIN FOR MONEY (2026-11-14) ══════════════════════════════════════════════════════════════
+   * Asked by api.js when the server answers PIN_REQUIRED (pinGate_ in Code.gs): once every 12 hours on
+   * this device, for actions that change money. First time → the admin sets one (twice, to catch a
+   * typo). The PIN never touches localStorage — only the token Pin.gs hands back does, the same token
+   * every request already carries. Mobile-first: one numeric box per PIN (inputmode numeric, so the
+   * phone opens the number pad), big enough to hit, and Enter submits. */
+  const pinBox = (id, label) => `<label class="field"><span>${label}</span>
+    <input id="${id}" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off"
+      style="font-size:1.6em;letter-spacing:.5em;text-align:center" placeholder="••••••"/></label>`;
+  const pinVal = (m, id) => String((m.querySelector('#' + id) || {}).value || '').replace(/\D/g, '');
+  window.__atomPinPrompt = async () => {
+    if (!USER || USER.role !== 'Admin') return false;
+    let st;
+    try { st = await api('pinStatus', {}); } catch (e) { err(e); return false; }
+    if (st && st.locked) { toast((EN() ? 'PIN locked — try again in ' : 'PIN ถูกล็อก — ลองใหม่ในอีก ') + (st.lockedMinutes || 15) + (EN() ? ' min' : ' นาที')); return false; }
+    const first = !(st && st.hasPin);
+    return new Promise(resolve => {
+      let done = false;
+      const finish = ok => { if (done) return; done = true; try { m.remove(); } catch (x) {} resolve(ok); };
+      const m = modal(`<h3>🔐 ${first ? (EN() ? 'Set your PIN for money' : 'ตั้งรหัส PIN สำหรับรายการเงิน') : (EN() ? 'Confirm your PIN' : 'ยืนยันรหัส PIN')}</h3>
+        <p class="muted" style="font-size:var(--fs-1)">${first
+          ? (EN() ? 'Money actions ask for your own 6-digit PIN once every 12 hours on each device. Nobody else can read it — not even other admins.'
+                  : 'รายการที่เปลี่ยนแปลงเงินจะถามรหัส PIN 6 หลักของคุณทุก 12 ชั่วโมงต่อเครื่อง · ไม่มีใครอ่าน PIN ได้ แม้แต่แอดมินคนอื่น')
+          : (EN() ? 'Money action — asked once every 12 hours on this device.' : 'รายการเงิน — ถามทุก 12 ชั่วโมงในเครื่องนี้')}</p>
+        ${pinBox('pin1', first ? (EN() ? 'New PIN (6 digits)' : 'PIN ใหม่ (ตัวเลข 6 หลัก)') : 'PIN')}
+        ${first ? pinBox('pin2', EN() ? 'Type it again' : 'พิมพ์ซ้ำอีกครั้ง') : ''}
+        <div id="pinMsg" role="alert" style="color:var(--pink-d);font-size:var(--fs-1);min-height:1.4em"></div>
+        <div class="row"><button type="button" class="btn outline" id="pinCancel">${EN()?'Cancel':'ยกเลิก'}</button>
+          <button type="button" class="btn" id="pinOk">${EN() ? 'Confirm' : 'ยืนยัน'}</button></div>`);
+      m.onclick = e => { if (e.target === m) finish(false); };
+      const msg = s => { const b = m.querySelector('#pinMsg'); if (b) b.textContent = s; };
+      const go = async () => {
+        const a = pinVal(m, 'pin1');
+        if (a.length !== 6) { msg(EN() ? 'PIN must be 6 digits' : 'PIN ต้องเป็นตัวเลข 6 หลัก'); return; }
+        if (first && a !== pinVal(m, 'pin2')) { msg(EN() ? 'The two PINs differ' : 'PIN สองช่องไม่ตรงกัน'); return; }
+        const b = m.querySelector('#pinOk'); b.disabled = true;
+        try {
+          const r = await api(first ? 'pinSet' : 'pinVerify', { pin: a });
+          if (r && r.token && window.__atomSetSession) __atomSetSession(r.token);
+          finish(true);
+        } catch (e) {
+          b.disabled = false;
+          const box = m.querySelector('#pin1'); if (box) { box.value = ''; box.focus(); }
+          msg((e && e.message) || String(e));
+          if (e && e.code === 'PIN_LOCKED') setTimeout(() => finish(false), 1800);
+        }
+      };
+      m.querySelector('#pinOk').onclick = go;
+      m.querySelector('#pinCancel').onclick = () => finish(false);
+      m.querySelectorAll('input').forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } }));
+      setTimeout(() => { const i = m.querySelector('#pin1'); if (i) i.focus(); }, 60);
+    });
+  };
+  /* the admin's own PIN: set it, or change it (needs the old one). Opened from ⚙️ ตั้งค่า & เครื่องมือ —
+   * the admin has no profile screen of their own. Forgotten → another admin resets it from the staff record. */
+  window.PIN_CHANGE = async () => {
+    let st; try { st = await api('pinStatus', {}); } catch (e) { err(e); return; }
+    if (!(st && st.hasPin)) { if (await window.__atomPinPrompt()) confirmSaved(EN() ? 'PIN set' : 'ตั้ง PIN แล้ว'); return; }
+    const m = modal(`<h3>🔐 ${EN() ? 'Change PIN' : 'เปลี่ยน PIN'}</h3>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()
+        ? 'Asked once every 12 hours on each device before an action that changes money. Forgotten it? Another admin can reset it from your staff record.'
+        : 'ถามทุก 12 ชั่วโมงต่อเครื่อง ก่อนทำรายการที่เปลี่ยนแปลงเงิน · ลืม PIN? ให้แอดมินอีกคนกดรีเซ็ตให้ที่หน้าข้อมูลพนักงานของคุณ'}</p>
+      ${pinBox('pinOld', EN() ? 'Current PIN' : 'PIN เดิม')}${pinBox('pinNew1', EN() ? 'New PIN' : 'PIN ใหม่')}${pinBox('pinNew2', EN() ? 'New PIN again' : 'PIN ใหม่อีกครั้ง')}
+      <div id="pinMsg2" role="alert" style="color:var(--pink-d);font-size:var(--fs-1);min-height:1.4em"></div>
+      <button class="btn block" id="pinChgOk">${esc(t('c.save'))}</button>`);
+    const msg = s => { const b = m.querySelector('#pinMsg2'); if (b) b.textContent = s; };
+    m.querySelector('#pinChgOk').onclick = async (ev) => {
+      const o = pinVal(m, 'pinOld'), a = pinVal(m, 'pinNew1'), b = pinVal(m, 'pinNew2');
+      if (o.length !== 6 || a.length !== 6) { msg(EN() ? 'PINs are 6 digits' : 'PIN ต้องเป็นตัวเลข 6 หลัก'); return; }
+      if (a !== b) { msg(EN() ? 'The new PINs differ' : 'PIN ใหม่สองช่องไม่ตรงกัน'); return; }
+      ev.target.disabled = true;
+      try { const r = await api('pinSet', { pin: a, oldPin: o }); if (r && r.token && window.__atomSetSession) __atomSetSession(r.token);
+        m.remove(); confirmSaved(EN() ? 'PIN changed' : 'เปลี่ยน PIN แล้ว'); }
+      catch (e) { ev.target.disabled = false; msg((e && e.message) || String(e)); }
+    };
+  };
+  /* another admin's PIN, from their staff record (never your own — Pin.gs refuses that) */
+  window.A_resetPin = async (id) => {
+    if (!confirm(EN() ? 'Reset this admin\'s PIN? They will set a new one before their next money action.'
+                      : 'รีเซ็ต PIN ของแอดมินคนนี้? เจ้าตัวต้องตั้ง PIN ใหม่ก่อนทำรายการเงินครั้งถัดไป')) return;
+    const box = document.getElementById('pinView_' + id);
+    try { const r = await api('pinReset', { targetKey: id });
+      if (box) box.textContent = r && r.cleared ? (EN() ? '✅ PIN reset' : '✅ รีเซ็ต PIN แล้ว') : (EN() ? 'No PIN was set' : 'ยังไม่ได้ตั้ง PIN อยู่แล้ว');
+    } catch (e) { err(e); }
+  };
   window.SIGNOUT_ALL = async (btn) => {
     if (!confirm(EN() ? 'Sign out of every other device? You will stay signed in here.'
                       : 'ออกจากระบบทุกอุปกรณ์อื่นใช่หรือไม่? · เครื่องนี้ยังใช้งานได้ตามปกติ')) return;
@@ -11870,6 +11955,7 @@
         ['⚙️',t('manage.settings'),'A_settings()'],
         ['🔔',EN()?'Notifications':'ตั้งค่าการแจ้งเตือน','A_setNotify()'],
         ['💰',EN()?'Money settings':'ตั้งค่าการเงิน','A_setMoney()'],
+        ['🔢',EN()?'My money PIN':'รหัส PIN รายการเงินของฉัน','PIN_CHANGE()'],
         ['🧾',EN()?'Receipt & invoice letterhead':'ข้อมูลบนใบเสร็จ / ใบแจ้งหนี้','A_docInfo()'],
         ['calendar',EN()?'Leave settings':'ตั้งค่าวันลา','A_setLeave()'],
         ['📅',t('manage.holidays'),"GO_('holidays')"],
@@ -12275,6 +12361,12 @@
           : 'ตัดการเข้าใช้งานทุกเครื่องของคนนี้ทันที · เจ้าตัวยังเข้าใหม่ด้วย LINE ได้ หากยังไม่ได้ตั้งวันสิ้นสุดการทำงาน'}</div>
         <div class="row" style="margin-top:var(--sp-2)"><button type="button" class="btn sm pink" onclick="A_signOutStaff('${id}')">${ic('block')} ${EN()?'Sign out everywhere':'ออกจากระบบทุกเครื่อง'}</button></div>
         <div id="soView_${id}" class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-2)"></div></div>`:''}
+      ${id && String(s.Role||'')==='Admin' && id!==USER.staffId ? `<div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><b style="font-size:var(--fs-1)">🔐 ${EN()?'Money PIN':'รหัส PIN รายการเงิน'}</b>
+        <div class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-1)">${EN()
+          ? 'If this admin forgot their PIN, reset it here. They set a new one before their next money action.'
+          : 'ถ้าแอดมินคนนี้ลืม PIN กดรีเซ็ตที่นี่ · เจ้าตัวตั้ง PIN ใหม่ก่อนทำรายการเงินครั้งถัดไป'}</div>
+        <div class="row" style="margin-top:var(--sp-2)"><button type="button" class="btn sm outline" onclick="A_resetPin('${id}')">🔐 ${EN()?'Reset PIN':'รีเซ็ต PIN'}</button></div>
+        <div id="pinView_${id}" class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-2)"></div></div>`:''}
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
     /* Read the per-person เบี้ยขยัน back from where it is SAVED (PAYROLL_CONFIG), not from the STAFF
      * row, which never held it. Loaded after the modal is up so opening a staff record does not wait

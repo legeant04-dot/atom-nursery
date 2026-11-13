@@ -528,6 +528,10 @@ SCHEMA[WB.HR] = {
   // submits them as one request; an Admin approves (applies + logs) or rejects. Changes = JSON array of
   // {staffId,name,before,after}. Status = PENDING_ADMIN|APPROVED|REJECTED.
   CLASS_CHANGE_REQ: ['ReqID', 'RequestBy', 'RequestByName', 'CreatedDate', 'Status', 'Changes', 'Note', 'Step2By', 'DecidedDate'],
+  // 🔐 An admin's PIN for money actions (src/Pin.gs, 2026-11-14). StaffID = the session's linkedId, or
+  // 'U:'+uid for an account with none. PinHash = HMAC-SHA256(Script Property PIN_PEPPER, Salt+':'+pin) —
+  // never the PIN. LockUntil = epoch ms (blank = not locked). In the CONFIDENTIAL workbook, next to STAFF.
+  ADMIN_PIN:     ['StaffID', 'PinHash', 'Salt', 'Fails', 'LockUntil', 'SetAt', 'SetBy'],
   // INFERRED — PDPA access log dedicated to the confidential workbook
   AUDIT_LOG:     ['Timestamp', 'UserID', 'Action', 'TableName', 'RecordID']
 };

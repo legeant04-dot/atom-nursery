@@ -104,6 +104,7 @@ const SUBJECT = {
   LEAVE_REQUEST: 'พนักงาน', OT_RECORDS: 'พนักงาน', PAYROLL: 'พนักงาน',
   PAY_ADJUSTMENTS: 'พนักงาน', TRAINING: 'พนักงาน', WORK_SCHEDULE: 'พนักงาน',
   ATTENDANCE_REQUEST: 'พนักงาน', CLASS_CHANGE_REQ: 'พนักงาน', CLASS_COVER: 'พนักงาน',
+  ADMIN_PIN: 'พนักงาน',   // 🔐 an admin's money PIN — stored as HMAC only (src/Pin.gs, 2026-11-14)
   PERF_LOG: '— (วัดความเร็วระบบ ไม่มีชื่อ/รหัสผู้ใช้)',
   APPLICATIONS: 'ผู้สมัคร (เด็ก) / ผู้ปกครอง', CONSENTS: 'ผู้ปกครอง (บันทึกความยินยอม)',
   APPLICATION_DOCS: 'ผู้สมัคร (เด็ก) / ผู้ปกครอง — สำเนาบัตรประชาชน ทะเบียนบ้าน สูติบัตร (ไฟล์ Drive แบบปิด)'

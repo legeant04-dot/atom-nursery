@@ -4,6 +4,7 @@
  * Regenerate after any change to SCHEMA in Config.gs or to docs/schema/001_init.sql.
  */
 var PG_SCHEMA_ = {
+  "HR:ADMIN_PIN": {"t":"admin_pin","c":[["StaffID","staff_id","text"],["PinHash","pin_hash","text"],["Salt","salt","text"],["Fails","fails","text"],["LockUntil","lock_until","text"],["SetAt","set_at","timestamptz"],["SetBy","set_by","text"]]},
   "HR:ATTENDANCE_REQUEST": {"t":"attendance_request","c":[["ReqID","req_id","text"],["StaffID","staff_id","text"],["Date","date","date"],["Type","type","text"],["RequestTime","request_time","time"],["Reason","reason","text"],["Status","status","text"],["Step1By","step1_by","text"],["Step1Status","step1_status","text"],["Step2By","step2_by","text"],["Step2Status","step2_status","text"],["CreatedDate","created_date","date"],["Step1At","step1_at","timestamptz"],["Step2At","step2_at","timestamptz"],["DecisionNote","decision_note","text"]]},
   "HR:AUDIT_LOG": {"t":"hr_audit_log","c":[["Timestamp","timestamp","timestamptz"],["UserID","user_id","text"],["Action","action","text"],["TableName","table_name","text"],["RecordID","record_id","text"]]},
   "HR:CHECKIN_STAFF": {"t":"checkin_staff","c":[["Date","date","date"],["StaffID","staff_id","text"],["CheckIn","check_in","time"],["CheckOut","check_out","time"],["LateMinutes","late_minutes","numeric"],["OTHours","othours","numeric"],["Status","status","text"],["InManual","in_manual","text"],["OutManual","out_manual","text"],["EditedBy","edited_by","text"],["EditedAt","edited_at","timestamptz"],["EditNote","edit_note","text"]]},

@@ -265,6 +265,11 @@ var ROUTES = {
   adminAddHolidayOT: function (p) { return handleAdminAddHolidayOT(p); },
   // 💵 the day's children + their bills, then tell each family (src/HolidayCare.gs)
   holidayAttendSet:  function (p) { return handleHolidayAttendSet(p); },
+  // 🔐 PIN for money actions (2026-11-14) — src/Pin.gs · stamped by applyIdentity_ from the session, never the client
+  pinStatus:        function (p) { return handlePinStatus(p); },
+  pinSet:           function (p) { return handlePinSet(p); },
+  pinVerify:        function (p) { return handlePinVerify(p); },
+  pinReset:         function (p) { return handlePinReset(p); },
   adminEditOT:    function (p) { return handleAdminEditOT(p); },
   adminDeleteOT:  function (p) { return handleAdminDeleteOT(p); },
   // duty roster (กะเวร) — reads via engine (dutyList); writes in-place with LINE notify
@@ -732,6 +737,19 @@ function applyIdentity_(action, payload, sess) {
     payload.uid = sess.uid;
     return payload;
   }
+  /* 🔐 THE PIN ROUTES ARE ABOUT THE CALLER, AND ONLY THE CALLER. An Admin payload is otherwise returned
+   * untouched (below), so a client could name somebody else's PIN row. Everything about WHO comes from
+   * the session: whose PIN (__pinKey), whose token to re-mint (__uid/__role/__linkedId, __pa).
+   * pinReset alone names a target, and Pin.gs refuses it when the target is the caller. */
+  if (PIN_ACTIONS_[action]) {
+    if (sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+    payload.__pinKey = pinKeyOf_(sess); payload.__uid = sess.uid; payload.__role = sess.role;
+    payload.__linkedId = sess.linkedId; payload.__pa = Number(sess.pa) || 0;
+    return payload;
+  }
+  /* 🔐 MONEY NEEDS A PIN CONFIRMED IN THE LAST 12 HOURS (2026-11-14). Here, in the one door both Apps
+   * Script and the fast host run (server/gate.js loads this file), so the rule cannot exist twice. */
+  if (sess.role === 'Admin') pinGate_(action, payload, sess);
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   // Observer is shaped the same way so it can OPEN any record; it simply cannot change one.
   if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER) {
@@ -1169,7 +1187,7 @@ var READ_ONLY_ACTIONS_ = { demoStatus: 1, absenceReport: 1, paymentLog: 1, payme
  * recorded a cash payment kept seeing the bill as unpaid.
  * Keep identical to WRITES in webapp/api.js — tools/test_lost_reply.js fails if it drifts.
  */
-var WRITES_ACTIONS_ = {
+var WRITES_ACTIONS_ = { pinSet: 1, pinVerify: 1, pinReset: 1,
   /* v427 — see WRITES in webapp/api.js. Without this the server would run a recall with NO WRITE
    * LOCK, and two head teachers recalling at once could interleave against the same rows. */
   recallJournalsMany: 1,
@@ -1277,6 +1295,92 @@ function editAttendanceWrite_(p) {
 }
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
+/* ════ 🔐 PIN FOR MONEY (2026-11-14) ═══════════════════════════════════════════════════════════════
+ *
+ * ผอ. decided 12/11: every role stays signed in for 90 days, and an admin's MONEY actions ask for the
+ * admin's own 6-digit PIN once every 12 hours on that device. Decided 14/11: a PIN (LINE again would
+ * pass silently inside the LINE app — whoever holds the phone gets through), and the actions are
+ * every one that CHANGES money; reading money does not ask.
+ *
+ * The confirmation is `pa` in the session token (Auth.gs issueSession_), set only by Pin.gs after a
+ * correct PIN. A token is per device, so the 12 hours are per device. Renewal carries `pa` forward
+ * unchanged — it never extends a confirmation.
+ *
+ * Three lists, each a question with one answer here:
+ *   PIN_MONEY_ACTIONS_      — always money
+ *   PIN_MONEY_CONFIG_KEYS_  — settings that move an amount someone pays or is paid (setConfigVal,
+ *                             setSchoolConfig ask only when one of these CHANGES — saving the GPS
+ *                             radius on the same screen does not)
+ *   PIN_MONEY_STAFF_FIELDS_ — a staff record's salary and bank fields (saveStaff asks only when one
+ *                             of these changes; a new nickname does not)
+ * Only Role Admin is asked: every action here is ADMIN_ONLY or an admin's tool already, and the
+ * Observer cannot write at all. */
+var PIN_CONFIRM_MS_ = 12 * 3600 * 1000;
+var PIN_ACTIONS_ = { pinStatus: 1, pinSet: 1, pinVerify: 1, pinReset: 1 };
+var PIN_MONEY_ACTIONS_ = {
+  // money received
+  recordCashPayment: 1, confirmPayment: 1, rejectPayment: 1, confirmSlip: 1, rejectSlip: 1, rejectSlips: 1,
+  deleteSlip: 1, deleteSlips: 1, payCombinedCash: 1,
+  // bills and charges
+  issueBill: 1, issueBillsFor: 1, generateMonthlyBills: 1, deleteBill: 1, undoBillRun: 1,
+  addStudentCharge: 1, removeStudentCharge: 1, holidayAttendSet: 1, holidayAttendRemove: 1,
+  // advance tuition and price lists
+  prepay: 1, editPrepay: 1, cancelPrepay: 1, prepayAudit: 1, savePrepayTiers: 1, savePlans: 1,
+  // payroll
+  computePayroll: 1, approvePayslip: 1, adjustStaffPay: 1, markSalaryPaid: 1, setPayrollConfig: 1,
+  deletePayrollRow: 1, payrollDuplicates: 1, recomputeContributions: 1, contributionReset: 1, setStaffPause: 1,
+  // OT — staff pay and the families' late-pickup charges
+  adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, confirmOT: 1,
+  adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, saveOtWaiveDays: 1,
+  // the slip checker's key and quota
+  saveSlipOk: 1
+};
+var PIN_MONEY_CONFIG_KEYS_ = {
+  OTRatePerHour: 1, OTGraceMinutes: 1, OTRoundUpMinutes: 1, StaffOTHourlyRate: 1, LateGraceMinutes: 1,
+  DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1, ParentPrepayEnabled: 1, RequireSalarySlip: 1,
+  ContributionMatchRate: 1, DiligenceAttendanceAmount: 1, DiligenceFacebookAmount: 1, TrainingCertRate: 1,
+  TrainingCertMaxPerMonth: 1, SocialSecurityRate: 1, SocialSecurityMax: 1, AbsenceRateExcludeDays: 1, HolidayCareFee: 1
+};
+var PIN_MONEY_STAFF_FIELDS_ = ['BaseSalary', 'BankName', 'BankAccount', 'ContributionOpening', 'ContributionAccum',
+  'ContributionLocked', 'NoPayroll', 'PauseSalaryMode', 'PauseSalaryAmount'];
+/** Whose PIN row: the staff record the session resolves to, or the LINE uid for an account with none. */
+function pinKeyOf_(sess) { return String((sess && sess.linkedId) || '') || ('U:' + String((sess && sess.uid) || '')); }
+function pinSame_(a, b) {
+  var x = String(a == null ? '' : a).trim(), y = String(b == null ? '' : b).trim();
+  if (x === y) return true;
+  return x !== '' && y !== '' && !isNaN(Number(x)) && !isNaN(Number(y)) && Number(x) === Number(y);
+}
+/** Does this call move money? (see the three lists above) */
+function pinRequiredFor_(action, payload) {
+  payload = payload || {};
+  if (PIN_MONEY_ACTIONS_[action]) return true;
+  if (action === 'setConfigVal') {
+    var k = String(payload.key || '');
+    return !!PIN_MONEY_CONFIG_KEYS_[k] && !pinSame_(payload.value, getConfig_(k, ''));
+  }
+  if (action === 'setSchoolConfig') {
+    var vals = payload.values || {};
+    return Object.keys(vals).some(function (k2) { return PIN_MONEY_CONFIG_KEYS_[k2] && !pinSame_(vals[k2], getConfig_(k2, '')); });
+  }
+  if (action === 'saveStaff') {
+    var d = payload.data || {};
+    var touched = PIN_MONEY_STAFF_FIELDS_.filter(function (f) { return d[f] !== undefined; });
+    if (!touched.length) return false;
+    if (!payload.staffId) return touched.some(function (f) { return String(d[f] == null ? '' : d[f]).trim() !== ''; });
+    var cur = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(payload.staffId); });
+    if (!cur) return false;                                 // handleSaveStaff refuses NOT_FOUND itself
+    return touched.some(function (f) { return !pinSame_(d[f], cur[f]); });
+  }
+  return false;
+}
+/** Throw PIN_REQUIRED unless this admin confirmed their PIN within PIN_CONFIRM_MS_ (on this device). */
+function pinGate_(action, payload, sess) {
+  if (!pinRequiredFor_(action, payload)) return;
+  var pa = Number(sess && sess.pa) || 0, now = Date.now();
+  if (pa > 0 && pa <= now + 60000 && now - pa < PIN_CONFIRM_MS_) return;
+  throw apiError_('PIN_REQUIRED', 'รายการเงิน — กรุณายืนยันรหัส PIN ก่อน (ถามทุก 12 ชั่วโมง)');
+}
+
 function isMutatingAction_(a) { a = String(a || '');
   if (READ_ONLY_ACTIONS_[a]) return false;
   if (WRITES_ACTIONS_[a]) return true;

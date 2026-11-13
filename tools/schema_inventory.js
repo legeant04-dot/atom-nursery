@@ -363,6 +363,7 @@ const ROW_KEY_ = {
   LEAVE_REQUEST: 'LeaveID', OT_RECORDS: 'OTRecordID', PAYROLL: 'PayrollID',
   PAY_ADJUSTMENTS: 'AdjID', TRAINING: 'TrainingID',
   ATTENDANCE_REQUEST: 'ReqID', CLASS_CHANGE_REQ: 'ReqID',
+  ADMIN_PIN: 'StaffID',            // 🔐 one PIN per admin (src/Pin.gs) — reset clears it in place, never a second row
   PAYROLL_CONFIG: 'StaffID',                              // one pay configuration per person
 
   // ── no unique key: these hold MANY rows for the same person ─────────────────────────────────

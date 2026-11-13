@@ -22,7 +22,7 @@ var USER_STATUS = { ACTIVE: 'ACTIVE', MUST_CHANGE: 'MUST_CHANGE_PASSWORD', DISAB
 // The client sends it with every request; the server verifies it and derives the caller's
 // identity FROM THE TOKEN (never trusting client-supplied uid/role), so anonymous callers
 // can't read other people's data. Enforced only when SCHOOL_CONFIG RequireSessionToken='true'.
-var SESSION_TTL_SEC = 43200; // 12h — the default, and what Admin/Leader/Observer keep
+var SESSION_TTL_SEC = 43200; // 12h — now only a half-finished registration (`guest`) keeps it
 /* HOW LONG A SESSION MAY SURVIVE WITHOUT THE APP BEING OPENED.
  *
  * Asked 2026-09-14 after an evening when several parents could not get in: "Login ค้างไว้เลยเหมือน
@@ -39,12 +39,23 @@ var SESSION_TTL_SEC = 43200; // 12h — the default, and what Admin/Leader/Obser
  * somebody may go WITHOUT opening the app before they are asked for LINE again — not how long they
  * may stay signed in. A teacher who opens it daily is never asked at all.
  */
+/* 🔁 2026-11-14 — THE SCHOOL'S DECISION OF 12/11: EVERY ROLE STAYS SIGNED IN.
+ *
+ * "ทุก Role ค้างล็อกอิน (ไม่หลุดตราบที่เปิดแอปอย่างน้อยทุก 90 วัน)". The tiering above was the right
+ * answer while the session was the ONLY thing standing between a picked-up admin phone and the
+ * school's money. It no longer is: a money action now needs a PIN confirmed within 12 hours
+ * (pinGate_ in Code.gs), so the admin's session can be as long as everybody else's without the
+ * money being any easier to move. `guest` keeps 12 hours — a half-finished registration should not
+ * linger on a shared phone for three months.
+ *
+ * Together with SESSION_RENEW_AFTER_MS_ below this is exactly the promise: open the app at least
+ * once every 90 days and you are never asked to sign in again. */
+var SESSION_LONG_TTL_SEC_ = 90 * 24 * 3600;
 var SESSION_TTL_BY_ROLE_ = {
-  Parent:  30 * 24 * 3600,   // opens the app occasionally — and is who the question was asked about
-  Teacher: 14 * 24 * 3600    // opens it every working day; 14 covers a holiday
+  Parent: SESSION_LONG_TTL_SEC_, Teacher: SESSION_LONG_TTL_SEC_, Admin: SESSION_LONG_TTL_SEC_,
+  Leader: SESSION_LONG_TTL_SEC_, Observer: SESSION_LONG_TTL_SEC_
 };
-/* Anything not named — Admin, Leader, Observer, and `guest` (a half-finished registration, which
- * should not linger on a shared phone for a month) — keeps the 12-hour default. */
+/* Anything not named — `guest` and an empty role — keeps the 12-hour default. */
 function sessionTtlFor_(role) {
   return SESSION_TTL_BY_ROLE_[String(role || '')] || SESSION_TTL_SEC;
 }
@@ -81,7 +92,12 @@ function bumpSessionEpoch_(uid) {
   map[String(uid)] = now;
   // A token that could still be alive is at most the longest TTL old, so an epoch older than that
   // can no longer refuse anything and is just weight in the cell.
-  var floor = now - (30 * 24 * 3600 * 1000);
+  /* 🔴 THE LONGEST TTL, READ FROM THE TABLE — not a number typed here. This said 30 days, which was the
+   * longest session until 2026-11-14 made every role 90: an epoch pruned on day 31 would have let a
+   * revoked phone's token (alive until day 90) back in. Found while moving the TTL. */
+  var longest = SESSION_TTL_SEC;
+  Object.keys(SESSION_TTL_BY_ROLE_).forEach(function (r) { longest = Math.max(longest, Number(SESSION_TTL_BY_ROLE_[r]) || 0); });
+  var floor = now - (longest * 1000);
   Object.keys(map).forEach(function (k) { if (Number(map[k]) < floor) delete map[k]; });
   setConfigValue_(SESSION_EPOCH_KEY_, JSON.stringify(map));
   return now;
@@ -98,13 +114,19 @@ function sessionSecret_() {
  * is no way to say "everything before now is dead". `at` lets a caller who is revoking their own
  * other devices keep the session they are sitting in (see handleSignOutEverywhere).
  */
-function issueSession_(uid, role, linkedId, at) {
+/* `extra.pa` — when this person last confirmed their PIN (ms). Only an Admin's token carries it, and
+ * only Pin.gs puts it there; pinGate_ (Code.gs) reads it. Renewal carries it forward unchanged, so a
+ * renewed token never extends a confirmation. */
+function issueSession_(uid, role, linkedId, at, extra) {
   var now = Number(at) || Date.now();
-  var body = Utilities.base64EncodeWebSafe(JSON.stringify({
+  var claims = {
     uid: uid, role: role, linkedId: linkedId,
     iat: now,
     exp: now + sessionTtlFor_(role) * 1000
-  }));
+  };
+  var pa = Number(extra && extra.pa) || 0;
+  if (pa > 0 && String(role) === 'Admin') claims.pa = pa;
+  var body = Utilities.base64EncodeWebSafe(JSON.stringify(claims));
   var sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body, sessionSecret_()));
   return body + '.' + sig;
 }
@@ -122,9 +144,12 @@ function renewSession_(sess) {
    * days, so it is renewed once it is inside the last 15 — checking it against 6 hours instead would
    * have reissued a token on very nearly every request, which is a signature and a sheet lookup each
    * time for no gain. The role comes from the token; the identity behind it is re-read below. */
-  var ttl = sessionTtlFor_(sess.role) * 1000;
+  /* 🔁 ONCE A DAY, NOT AT HALF-LIFE (2026-11-14). With a 90-day token "renew past halfway" would let a
+   * person who opened the app on day 30 run out on day 90 having been active in between — the promise
+   * is "open it at least once every 90 days", so the clock restarts on any day the app is used. A day
+   * keeps the cost where it was: one identity lookup per person per day, and none on the busy minutes. */
   var left = sess.exp - Date.now();
-  if (left <= 0 || left > ttl / 2) return '';
+  if (left <= 0 || (Date.now() - (Number(sess.iat) || 0)) < SESSION_RENEW_AFTER_MS_) return '';
   /* RE-DERIVED, NOT COPIED FORWARD.
    *
    * This used to reissue with the role and linkedId frozen into the token at sign-in, and renewal
@@ -142,8 +167,10 @@ function renewSession_(sess) {
    */
   var who = resolveIdentity_(sess.uid);
   if (!who) return '';
-  return issueSession_(sess.uid, who.role, who.linkedId);
+  /* the PIN confirmation travels with the PERSON'S ROLE: an admin who is no longer an admin loses it */
+  return issueSession_(sess.uid, who.role, who.linkedId, undefined, { pa: who.role === 'Admin' ? sess.pa : 0 });
 }
+var SESSION_RENEW_AFTER_MS_ = 24 * 3600 * 1000;
 /** Who is this LINE uid, right now — in the order handleAuth resolves: USERS, PARENTS, STAFF. */
 function resolveIdentity_(uid) {
   if (!uid) return null;

@@ -38,7 +38,7 @@ const res = JSON.parse(run(new Function('return (' + function (DOORS) {
   appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'STF-T9', Name: 'ครูทดสอบ', Role: 'Teacher', PositionLevel: 'Teacher', Status: 'ACTIVE', StartDate: '2025-01-01' });
   appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'STF-A9', Name: 'แอดมินทดสอบ', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE', StartDate: '2025-01-01' });
   try { CacheService.getScriptCache().removeAll(['cfg', 'col:BILLING', 'rows:BILLING', 'col:STUDENTS', 'col:PARENTS', 'col:USER_LINKS', 'col:STAFF', 'rows:STAFF']); } catch (e) {}
-  var P = issueSession_('U-P9', 'Parent', 'PAR-9'), T = issueSession_('U-T9', 'Teacher', 'STF-T9'), A = issueSession_('U-A9', 'Admin', 'STF-A9');
+  var P = issueSession_('U-P9', 'Parent', 'PAR-9'), T = issueSession_('U-T9', 'Teacher', 'STF-T9'), A = issueSession_('U-A9', 'Admin', 'STF-A9', undefined, { pa: Date.now() });   // an admin who has typed their PIN (test_pin.js covers the gate)
   function call(a, p, tok) { var j = JSON.parse(dispatch_(a, p, tok).getContent()); return j.ok ? 'OK' : j.error.code; }
   function bill() { try { CacheService.getScriptCache().removeAll(['col:BILLING', 'rows:BILLING']); } catch (e) {}
     return (readObjects_(sheet_(main, 'BILLING')).filter(function (b) { return b.BillingID === 'BL-9'; })[0] || {}).Status; }

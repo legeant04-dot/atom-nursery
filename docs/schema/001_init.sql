@@ -44,6 +44,26 @@ create unique index if not exists cache_version_uq on cache_version(tenant_id, s
 alter table cache_version enable row level security;
 -- ไม่มีนโยบายเลย = client ทำอะไรไม่ได้ · เซิร์ฟเวอร์ (service_role / Apps Script / Cloud Run) เท่านั้น
 
+-- ── ADMIN_PIN  (HR workbook)
+create table if not exists admin_pin (
+  id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
+  tenant_id   uuid not null references tenant(id) on delete restrict,
+  "staff_id"                   text,
+  "pin_hash"                   text,
+  "salt"                       text,
+  "fails"                      text,
+  "lock_until"                 text,
+  "set_at"                     timestamptz,
+  "set_by"                     text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists admin_pin_code_uq on admin_pin(tenant_id, "staff_id");
+create index if not exists admin_pin_tenant_ix on admin_pin(tenant_id);
+create index if not exists admin_pin_seq_ix on admin_pin(tenant_id, seq);
+alter table admin_pin enable row level security;
+
 -- ── ATTENDANCE_REQUEST  (HR workbook)
 create table if not exists attendance_request (
   id          uuid primary key default gen_random_uuid(),
