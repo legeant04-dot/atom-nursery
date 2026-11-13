@@ -70,7 +70,7 @@ const res = JSON.parse(run(eval(`(function () { var ON_FILE = ${JSON.stringify(O
   out.editSelf = call('editLeave', { leaveId: 'LV-RANGE', startDate: '2026-11-24', endDate: '2026-11-25', staffId: 'STF-A' }, tA);
   out.editReason = call('editLeave', { leaveId: 'LV-FULL', reason: 'แก้เหตุผลอย่างเดียว', staffId: 'STF-A' }, tA);
   out.all = call('allLeaves', {}, tA);
-  out.rangeAfter = readObjects_(sheet_(hr, 'LEAVE_REQUEST')).filter(function (r) { return r.LeaveID === 'LV-RANGE'; }).map(function (r) { return String(r.StartDate).slice(0, 10) + '>' + String(r.EndDate).slice(0, 10); })[0];
+  out.rangeAfter = readObjects_(sheet_(hr, 'LEAVE_REQUEST')).filter(function (r) { return r.LeaveID === 'LV-RANGE'; }).map(function (r) { return ymdCell_(r.StartDate) + '>' + ymdCell_(r.EndDate); })[0];
   return JSON.stringify(out); })`)));
 
 console.log('\n1) ครูยื่นใบลา — route จริง (Leave.gs) ผ่าน dispatch_ ด้วย session จริง');

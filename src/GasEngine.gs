@@ -116,6 +116,7 @@ function handleBatch(p) {
    * the lock — answer normally. Before this, one write in the batch meant the whole home screen
    * failed with BUSY, which is what put BUSY×6–8 on every read in the 07–13/10 report. */
   var isBusy = !!(p && p.__busy);
+  var isFrozen = !!(p && p.__frozen);
   var out = calls.map(function (c) {
     try {
       // Observer is read-only. Refused HERE, per call, so the reads sharing this batch still answer —
@@ -123,6 +124,11 @@ function handleBatch(p) {
       if (isObs && typeof isMutatingAction_ === 'function' && isMutatingAction_(c.action)) {
         return { ok: false, error: { code: 'READ_ONLY',
           message: (typeof OBSERVER_READ_ONLY_MSG_ !== 'undefined') ? OBSERVER_READ_ONLY_MSG_ : 'read only' } };
+      }
+      // 🧊 WRITE_FREEZE (src/Freeze.gs): the same shape as BUSY — the write is refused, the reads answer
+      if (isFrozen && typeof isMutatingAction_ === 'function' && isMutatingAction_(c.action)) {
+        return { ok: false, error: { code: 'WRITE_FROZEN',
+          message: (typeof WRITE_FROZEN_MSG_ !== 'undefined') ? WRITE_FROZEN_MSG_ : 'ระบบกำลังปรับปรุงชั่วคราว' } };
       }
       if (isBusy && typeof isMutatingAction_ === 'function' && isMutatingAction_(c.action)) {
         return { ok: false, error: { code: 'BUSY',
@@ -155,7 +161,7 @@ function handleBatch(p) {
    * would write nothing anyway — but "would write nothing anyway" is a property of the handlers,
    * and the lock exists precisely so that correctness is not a property of the handlers. Skipped
    * outright, so there is no argument to get wrong. */
-  try { if (!isBusy) ctx.persist(); }
+  try { if (!isBusy && !isFrozen) ctx.persist(); }
   catch (pe) {
     try { Logger.log('handleBatch persist failed: ' + (pe && pe.stack || pe)); } catch (x) {}
     out = out.map(function (r, i) {

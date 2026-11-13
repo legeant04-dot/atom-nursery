@@ -184,7 +184,8 @@ function perfTz_() {
  * which is the right way round for a list that decides what we stop looking at.
  */
 var PERF_EXPECTED_ = {
-  OUT_OF_RANGE: 1,          // standing away from the school — the geofence doing its job
+  WRITE_FROZEN: 1,          // writing stopped on purpose for a data move/rollback (src/Freeze.gs)
+  OUT_OF_RANGE: 1,         // standing away from the school — the geofence doing its job
   ALREADY_CHECKED_IN: 1, ALREADY_CHECKED_OUT: 1,   // the server refusing a duplicate punch
   MISSING_FIELDS: 1, BAD_INPUT: 1,                 // a form submitted incomplete
   FUTURE_TIME: 1,           // an injury timed later than now — the form catching a typing slip

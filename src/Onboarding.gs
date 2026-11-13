@@ -97,6 +97,7 @@ var ONBOARD_SCOPE_ = {
   Plans:                  'CONFIRM',   // 🔴 the price list. Inheriting another school's is a money bug.
   PrepayTiers:            'CONFIRM',
   OTRatePerHour:          'CONFIRM',  StaffOTHourlyRate:     'CONFIRM',
+  HolidayCareFee:         'CONFIRM',   // 💵 ค่าดูแลวันหยุด/คน — a price; blank by default (the form asks each time)
   OTRate:                 'CONFIRM',  OTEveningRate:         'CONFIRM',
   OTGraceMinutes:         'CONFIRM',
   DiligenceAttendanceAmount: 'CONFIRM', DiligenceFacebookAmount: 'CONFIRM',

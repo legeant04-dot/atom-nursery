@@ -262,7 +262,11 @@ SCHEMA[WB.MAIN] = {
    * teacher's OT วันหยุด. One row per (Date, StudentID). It is an ALLOWLIST, not a plan: a child who
    * is not on it cannot be checked in that day, because "who is coming" is the only thing that makes
    * a closed day safe to open. A teacher can add a name on the spot. */
-  HOLIDAY_ATTEND:    ['Date', 'StudentID', 'AddedBy', 'AddedAt'],
+  /* 💵 ค่าดูแลวันหยุด (2026-11-13). Fee = what the school charges THIS child for THIS day; FeeStatus
+   * 'SET' (priced — Fee 0 means free) | 'PENDING' (a teacher added the child on the spot, the admin has
+   * not priced it yet) | '' (rows from before billing existed — never billed, never nagged about);
+   * ChargeID = the STUDENT_CHARGES row the price became. See holidayAttendSet in Engine.gs. */
+  HOLIDAY_ATTEND:    ['Date', 'StudentID', 'AddedBy', 'AddedAt', 'Fee', 'FeeStatus', 'ChargeID'],
   // Per-student vaccine records (standard schedule 1mo–6yr)
   VACCINE_RECORDS:   ['StudentID', 'VaccineKey', 'VaccineName', 'DoseDate', 'Note'],
   // Method: 'transfer' (a slip) or 'cash' (recorded at the desk by an Admin, no image)
@@ -586,6 +590,7 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['OTRatePerHour',         '100'],          // baht per started hour beyond the grace window (parent pickup OT)
   ['OTGraceMinutes',        '21'],           // free grace; pickup >21 min past plan end starts charging
   ['StaffOTHourlyRate',     '100'],          // baht/hour for teacher OT (auto-pulled into payroll)
+  ['HolidayCareFee',        ''],             // ค่าดูแลวันหยุด/คน — pre-filled on the OT วันหยุด form; blank = admin types it
   // --- Growth: months a child's weight/height/photo must be refreshed before assessing ---
   ['GrowthUpdateMonths',    '2,4,6,8,10,12'],
 

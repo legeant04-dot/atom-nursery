@@ -210,7 +210,8 @@ console.log('\n6) both runtimes, and the door they share');
   ok_('...and says why it exists', /it is not a second thing to be paid\s*\n\s*\* for/.test(ci));
 }
 {
-  ok_('the sheet is declared', /HOLIDAY_ATTEND:\s+\['Date', 'StudentID', 'AddedBy', 'AddedAt'\]/.test(cfg));
+  // + Fee/FeeStatus/ChargeID since 2026-11-13 (ค่าดูแลวันหยุด — tools/test_holiday_care.js)
+  ok_('the sheet is declared', /HOLIDAY_ATTEND:\s+\['Date', 'StudentID', 'AddedBy', 'AddedAt', 'Fee', 'FeeStatus', 'ChargeID'\]/.test(cfg));
   ok_('...and mapped for the engine', /holidayAttend:\s+\{ wb: 'MAIN', sheet: 'HOLIDAY_ATTEND' \}/.test(ge));
   // the three that WRITE do not start with a mutating verb — an unnamed write takes no lock
   ok_('the three writes are named as writes, server side',
@@ -237,8 +238,9 @@ console.log('\n7) the screens');
   ok_('...with a whole class tickable at once', /A_hotStdClass\(this,'\$\{esc\(c\)\}'\)/.test(app));
   ok_('...and it says what ticking DOES', /ติ๊กชื่อนักเรียนเพื่อเปิดการรับ-ส่งของวันนั้น/.test(app));
   ok_('...including what happens if you tick nobody', /ไม่ติ๊กใครเลย = เปิดเฉพาะการลงเวลาของคุณครู/.test(app));
-  ok_('saving writes the list beside the OT', /await api\('holidayAttendSet',\{staffId:USER\.staffId,date:g\('hotDate'\),studentIds\}\)/.test(app));
-  ok_('reopening the form shows what was saved', /picked\.forEach\(x=>\{ on\[x\.studentId\]=1; \}\)/.test(app));
+  // since 2026-11-13 the list travels with each child's price (fees) — see tools/test_holiday_care.js
+  ok_('saving writes the list beside the OT', /await api\('holidayAttendSet',\{staffId:USER\.staffId,date:g\('hotDate'\),studentIds,fees\}\)/.test(app));
+  ok_('reopening the form shows what was saved', /picked\.forEach\(x=>\{ curBy\[x\.studentId\]=x; \}\)/.test(app) && /\$\{x\?'checked':''\}/.test(app));
   ok_('the teacher sees the day\'s children on their home screen', /api\('holidayAttendList',\{\}\)/.test(app));
   ok_('...and can add one who turned up', /window\.T_holAddStudent=async\(date\)=>/.test(app) && /holidayAttendAdd/.test(app));
 }
@@ -286,7 +288,7 @@ console.log('\n7c) the record can be opened again — including its children');
 {
   ok_('each holiday-OT card says who is coming that day', /id="hotKids_\$\{esc\(ymd\(o\.Date\)\)\}"/.test(app));
   ok_('...and has a button to change it', /A_hotKidsEdit\('\$\{esc\(ymd\(o\.Date\)\)\}'\)/.test(app));
-  ok_('the editor ticks what is already saved', /cur\.forEach\(x=>\{ on\[x\.studentId\]=1; \}\)/.test(app));
+  ok_('the editor ticks what is already saved', /cur\.forEach\(x=>\{ curBy\[x\.studentId\]=x; \}\)/.test(app) && /cur:curBy\[s\.StudentID\]/.test(app));
   ok_('...and says the list belongs to the DAY, not to one teacher', /คุณครูทุกคนที่ทำงานวันหยุดนั้นใช้รายชื่อเดียวกัน/.test(app));
   ok_('a teacher has their own screen for it', /window\.T_holidayOT=async\(month\)=>/.test(app));
   ok_('...reachable from their tool row', /onclick="T_holidayOT\(\)">🎉/.test(app));

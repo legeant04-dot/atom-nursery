@@ -98,7 +98,10 @@ console.log('\n2) money is numeric, and the tool will not guess');
    * still may not DROP by accident, which is why this is pinned rather than bounded; it moved
    * because somebody decided it should, and the reason is written beside the column in
    * schema_inventory.js. */
-  eq('money columns are numeric(12,2), never float or text', pairs.size, 50);
+  /* 50 → 51 (2026-11-13): HOLIDAY_ATTEND.Fee joined on purpose — ค่าดูแลวันหยุด, what one child is
+   * charged for one closed day. It becomes a STUDENT_CHARGES bill, so it is money in the same sense
+   * Amount is. FeeStatus beside it is NOT (declared in NOT_MONEY: it says whether a price was set). */
+  eq('money columns are numeric(12,2), never float or text', pairs.size, 51);
   /* 51 → 50 → 52 in one day, then 52 → 50 (2026-11-11), and each move is a decision with a reason beside the column:
    *   −2  PAYROLL_CONFIG.SocialSecurityDeduct / .TaxDeduct left — they are TICK BOXES, not amounts. The test
    *       below used to assert they were numeric; a numeric column stores the screen's `true` as nothing, so

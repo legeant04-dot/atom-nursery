@@ -567,6 +567,7 @@ var SLIPOK_URGENT_DAYS_ = 7;     // ...and say so more loudly inside this many
 var SLIPOK_LOW_QUOTA_ = 50;      // slips remaining that counts as nearly out
 
 function slipOkExpiryCheck_() {
+  if (typeof freezeSkip_ === 'function' && freezeSkip_('slipOkExpiryCheck_')) return;      // 🧊 WRITE_FREEZE (src/Freeze.gs)
   try {
     var live = slipOkProbe_();
     if (!live.checked) return { checked: false };   // not configured — nothing to watch

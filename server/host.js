@@ -88,6 +88,10 @@ const jsonOut = (res, obj, status) => {
 /** ซองคำตอบต้องเหมือน Code.gs ทุกตัวอักษร ไม่งั้น api.js อ่านไม่ออก */
 const reply = (res, action, o) => jsonOut(res, Object.assign({ a: action }, o));
 
+/* 🧊 the switch src/Freeze.gs sets — same words as Apps Script so the app shows one message */
+const WRITE_FROZEN_MSG = 'ระบบกำลังปรับปรุงชั่วคราว — ดูข้อมูลได้ตามปกติ แต่ยังบันทึกไม่ได้ กรุณาลองใหม่ภายหลัง';
+const isFrozen = cfg => String((cfg && cfg.WriteFreeze) || '').trim().toLowerCase() === 'on';
+
 async function handle(req, res, body) {
   const t0 = Date.now();
   let msg;
@@ -153,6 +157,9 @@ async function handle(req, res, body) {
       const cfgRows = [];                 // SCHOOL_CONFIG as a sheet, from the same query — for server/routes.js
       M.config = await PG.hydrateConfig(client, tenant, { rows: cfgRows });
       const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
+      /* 🧊 WRITE_FREEZE (src/Freeze.gs) — SCHOOL_CONFIG WriteFreeze, read in THIS attempt: the locked attempt
+       * re-reads it after taking the school's lock, so a write that waited behind freezeWrites() sees it */
+      const frozen = isFrozen(M.config);
       /* Code.gs routes this host runs itself (server/routes.js) read their own sheets — exactly those */
       const raw = {}, mayWrite = new Set(ROUTES_PORT.writable(callsIn)), routeWrites = [];
       /* LINE the routes wrote down in THIS attempt — an attempt that is retried, refused or rolled back
@@ -180,6 +187,7 @@ async function handle(req, res, body) {
          * (GAS เคยตรวจแค่ระดับบน — ช่องที่พบและปิดไปแล้วใน @399) */
         if (a === 'batch' || GATE.isClosed(a)) return err('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + a);
         if (isObs && GATE.isMutating(a) && a !== OWN_SESSION) return err('READ_ONLY', GATE.observerMessage());
+        if (frozen && GATE.isMutating(a)) return err('WRITE_FROZEN', WRITE_FROZEN_MSG);
         let pl;
         try { pl = GATE.identity(a, (c && c.payload) || {}, sess, M); }
         catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
@@ -208,6 +216,9 @@ async function handle(req, res, body) {
       const changed = ALL_KEYS.filter(k => JSON.stringify(M[k]) !== before[k]);
       const otherChanged = (JSON.stringify(M.config) !== before.config ? ['config'] : []).concat(derivedChanged());
       const t = { hydrate: tHydrate, run: tRun, save: 0 };
+      /* 🧊 frozen: every named write was refused above; whatever a read changed on the side is not saved
+       * (the same as Apps Script's handleBatch skipping persist) — the reads still answer */
+      if (frozen) { if (locked) await client.query('rollback'); return { results, t, line: [] }; }
       if (!changed.length && !otherChanged.length && !routeWrites.length) {
         if (locked) await client.query('commit');
         return { results, t, line: lineOut.out };

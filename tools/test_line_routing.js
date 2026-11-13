@@ -88,6 +88,14 @@ const res = JSON.parse(run(function () {
     appendObject_(ck, { Date: (i % 2 ? new Date() : dateStr_(new Date())), Time: '08:0' + (i % 10),
       StudentID: 'STD-1', ParentID: 'PAR-1', Type: 'IN', Status: 'OK', ByStaffID: 'STF-T' });
   }
+  /* THE JOURNAL AND DSPM LINES COUNTED SHEETS THAT DO NOT EXIST ('JOURNAL', 'ASSESSMENTS'), so on live
+   * both always read zero — and the journal is one message per child per school day. Seeded under the
+   * REAL names now: 2 sent + 1 draft journal, and 2 DSPM saves of 3 items each (one message per save). */
+  var jr = sheet_(MAIN, 'DAILY_JOURNAL'), da = sheet_(MAIN, 'DSPM_ASSESSMENT');
+  ['SUBMITTED', 'SUBMITTED', 'DRAFT'].forEach(function (st, i) {
+    appendObject_(jr, { Date: (i ? new Date() : dateStr_(new Date())), StudentID: 'STD-' + i, TeacherID: 'STF-T', Status: st }); });
+  ['DA-0001', 'DA-0002'].forEach(function (id) { for (var k = 1; k <= 3; k++)
+    appendObject_(da, { AssessmentID: id, StudentID: 'STD-1', ItemNo: k, Result: 'ผ่าน', Date: new Date(), TeacherID: 'STF-T' }); });
   o.usage = handleLineUsage({ days: 14 });
   return JSON.stringify(o);
 }));
@@ -216,6 +224,9 @@ console.log('\n3) THE MONEY — counted, not guessed');
     (u.items || []).some(x => x.key === 'journalParent'));
   ok_('...and only the ones the teacher actually SENT, not drafts',
     /String\(r\.Status \|\| ''\)\.toUpperCase\(\) !== 'DRAFT'/.test(lineGs));
+  eq('the journal line reads the REAL sheet — 2 sent, the draft not counted', item('journalParent').events, 2);
+  eq('DSPM: one message per save, not per item (2 saves × 3 items)', item('dspmParent').events, 2);
+  ok_('...no line counts a sheet name the app does not have', !/count\('MAIN', '(JOURNAL|ASSESSMENTS)'/.test(lineGs));
   ok_('they are still counted while the switch is on', item('checkinParent').perEvent === 1);
   ok_('the screen separates them from the staff half', /ส่งถึงผู้ปกครอง — ไม่เกี่ยวกับรายชื่อผู้รับ/.test(app));
   /* 🔴 ONE SWITCH FOR THREE CHANNELS BECAME ONE PER TOPIC (2026-10-10).

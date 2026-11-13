@@ -21,7 +21,9 @@ const NOT_ON_HOST = {
   pgEnabled_: 'DbPg.gs — Apps Script reading Postgres; the host IS Postgres',
   pgWriteLock_: 'DbPg.gs — the host takes the same advisory lock itself (server/host.js)',
   pgCacheKey_: 'DbPg.gs — the host bumps cache versions itself (PG.bumpCacheVersions)',
-  demoOn_: 'Demo.gs — needs Script Properties; the sandbox LINE recorder applies DemoMode itself (stricter)'
+  demoOn_: 'Demo.gs — needs Script Properties; the sandbox LINE recorder applies DemoMode itself (stricter)',
+  writeFrozen_: 'Freeze.gs — Script Properties; the host reads SCHOOL_CONFIG WriteFreeze itself (server/host.js, tools/test_freeze_live.js)',
+  freezeSkip_: 'Freeze.gs — guards the time triggers, which never run on the host'
 };
 const defined = {};
 fs.readdirSync(SRC).filter(f => f.endsWith('.gs')).forEach(f => {

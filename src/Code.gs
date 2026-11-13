@@ -263,6 +263,8 @@ var ROUTES = {
   confirmOT:      function (p) { return handleConfirmOT(p); },
   adminAddOT:     function (p) { return handleAdminAddOT(p); },
   adminAddHolidayOT: function (p) { return handleAdminAddHolidayOT(p); },
+  // 💵 the day's children + their bills, then tell each family (src/HolidayCare.gs)
+  holidayAttendSet:  function (p) { return handleHolidayAttendSet(p); },
   adminEditOT:    function (p) { return handleAdminEditOT(p); },
   adminDeleteOT:  function (p) { return handleAdminDeleteOT(p); },
   // duty roster (กะเวร) — reads via engine (dutyList); writes in-place with LINE notify
@@ -1051,6 +1053,10 @@ function dispatch_(action, payload, token) {
   if (sessionRequired_() && !publicAction_(action) && !allPublic && !sess) {
     return reply_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
   }
+  /* 🧊 WRITE_FREEZE (src/Freeze.gs) — sign-in writes USERS/PARENTS without the lock, so it waits */
+  if (typeof FREEZE_SIGNIN_ !== 'undefined' && FREEZE_SIGNIN_[action] && writeFrozen_()) {
+    return reply_({ ok: false, error: { code: 'WRITE_FROZEN', message: WRITE_FROZEN_MSG_ } });
+  }
   try {
     // Serialize anything that can WRITE. A request hydrates sheets then persists them, so two
     // concurrent writers could interleave (one reading a half-written sheet) — the cause of the
@@ -1092,7 +1098,11 @@ function dispatch_(action, payload, token) {
     if (mutates) lineDeferBegin_();
     try {
       return withWriteLock_(mutates, function () {
-        if (action === 'batch') { (payload = payload || {}).__sess = sess; return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
+        /* 🧊 WRITE_FREEZE — checked INSIDE the lock, so a write that waited for freezeWrites() to
+         * release it is refused, not let through. A batch is refused call by call (handleBatch). */
+        var frozen = mutates && typeof writeFrozen_ === 'function' && writeFrozen_();
+        if (frozen && action !== 'batch') throw apiError_('WRITE_FROZEN', WRITE_FROZEN_MSG_);
+        if (action === 'batch') { (payload = payload || {}).__sess = sess; if (frozen) payload.__frozen = true; return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
         // perfLog records WHICH ROLE was affected. That must come from the verified session, never
         // from the client — otherwise the one report we use to make decisions is trivially poisoned.
         // No session is itself the signal we want (a user who could not sign in), recorded as 'anon'.

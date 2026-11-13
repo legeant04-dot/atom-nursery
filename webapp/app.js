@@ -1041,7 +1041,7 @@
    * work spent a week undoing. */
   const opsWanted_ = () => !!(USER && USER.role==='Admin' && USER.staffId);
   const OPS_LABEL = { staffOT:['OT คุณครูรออนุมัติ','Teacher OT awaiting approval'],
-    holidayOT:['OT วันหยุดรออนุมัติ','Holiday OT awaiting approval'],
+    holidayOT:['OT วันหยุด · นักเรียนรอกำหนดราคา','Holiday OT · children awaiting a price'],
     timeRequests:['คำขอลงเวลารออนุมัติ','Time requests awaiting approval'],
     classChanges:['คำขอย้าย/จัดชั้นเรียน','Class-change requests'],
     studentOT:['OT รับช้า รอตรวจสลิป','Late-pickup OT slips to verify'],
@@ -14330,6 +14330,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <h4 style="margin:var(--sp-3) 0 var(--sp-1)">⏰ ${EN()?'Staff OT & provident fund':'OT พนักงาน & เงินสมทบ'}</h4>
       <div class="grid2"><label class="field"><span>${EN()?'Staff OT (฿/hour)':'OT พนักงาน (฿/ชั่วโมง)'}</span><input id="setOtRate" type="number" min="0" value="${esc(sc.StaffOTHourlyRate!=null?sc.StaffOTHourlyRate:100)}"/></label>
         <label class="field"><span>${EN()?'School match (× staff share)':'โรงเรียนสมทบ (เท่าของยอดหักพนักงาน)'}</span><input id="setMatch" type="number" min="0" step="0.1" value="${esc(sc.ContributionMatchRate!=null?sc.ContributionMatchRate:1)}"/></label></div>
+      <label class="field"><span>💵 ${EN()?'Holiday care fee per child (฿) — pre-filled on Holiday OT':'ค่าดูแลวันหยุด/คน (฿) — เติมให้อัตโนมัติในหน้า OT วันหยุด'}</span><input id="setHolFee" type="number" min="0" inputmode="decimal" placeholder="${EN()?'blank = type each time':'เว้นว่าง = กรอกเองทุกครั้ง'}" value="${esc(sc.HolidayCareFee!=null?sc.HolidayCareFee:'')}"/></label>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Match 1 = deduct 200 from staff, school adds 200, fund grows 400.':'สมทบ 1 เท่า = หักพนักงาน 200 · โรงเรียนสมทบ 200 · เข้ากองทุน 400'}</p>
       <button class="btn sm outline block" onclick="A_contribRecalc(this)">${ic('calc')} ${EN()?'Review accumulated fund totals':'ตรวจยอดเงินสมทบสะสมของทุกคน'}</button>
       ${/* Below the recompute, because it is the answer when recomputing is not: a total built from
@@ -16329,6 +16330,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     cfgVal('DiligenceFacebookAmount','#setFb',    v=>+v||0);
     cfgVal('StaffOTHourlyRate','#setOtRate',      v=>+v||100);
     cfgVal('ContributionMatchRate','#setMatch',   v=>v===''?1:+v);
+    cfgVal('HolidayCareFee','#setHolFee',         v=>String(v).trim()===''?'':Math.max(0,+v||0));
     cfgVal('CacheTTL','#setTtl',                  v=>Math.max(30,Math.min(21600,+v||900)));
     for(const el of m.querySelectorAll('input[id^="lq_"]')){ const type=el.id.slice(3); if(!type) continue;
       jobs.push(api('setLeaveQuota',{type,days:+el.value||0})); }
@@ -16746,12 +16748,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <summary style="cursor:pointer;font-weight:700">${ic('plus')} ${EN()?'Record holiday OT':'บันทึก OT วันหยุด'}</summary>
         <label class="field" style="margin-top:var(--sp-2)"><span>${EN()?'Date worked (holidays only)':'วันที่มาทำงาน (เฉพาะวันหยุด)'}</span><input type="date" id="hotDate" value="${todayStr()}" onchange="A_hotDate(this.value)"/></label>
         <div id="hotDateWhy" style="font-size:var(--fs-1);margin:-4px 0 var(--sp-2)"></div>
-        <label class="field"><span>${EN()?'Amount each (฿)':'จำนวนเงินต่อคน (฿)'}</span><input type="number" min="0" id="hotAmount" placeholder="0"/></label>
+        <!-- 💵 one amount EACH (ผอ., 2026-11-13). This box fills every ticked teacher whose own box is still
+             empty — the quick path when everybody is paid the same; each box can then be changed. -->
+        <label class="field"><span>${EN()?'Same amount for everyone ticked (฿)':'จำนวนเงินเท่ากันทุกคนที่ติ๊ก (฿)'}</span><input type="number" min="0" inputmode="decimal" id="hotAmount" placeholder="0" oninput="A_hotFillAmt(this.value)"/></label>
         <label class="field"><span>${EN()?'Details of the work':'รายละเอียดการทำงาน'}</span><textarea id="hotNote" rows="3" placeholder="${EN()?'What was done on the day off':'ทำอะไรในวันหยุด'}"></textarea></label>
         <div class="spread" style="margin:var(--sp-2) 0"><b style="font-size:var(--fs-1)">${EN()?'Staff':'พนักงาน'} <span class="muted" id="hotN">(0)</span></b>
           <label style="display:flex;gap:var(--sp-2);align-items:center;font-size:var(--fs-1)"><input type="checkbox" id="hotAll" style="width:auto" onchange="A_hotToggleAll(this)"/> ${EN()?'All':'ทั้งหมด'}</label></div>
         <div style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
-          ${people.map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer"><input type="checkbox" class="hotchk" value="${esc(s.StaffID)}" style="width:auto" onchange="A_hotSel()"/><span>${esc(nmn(s))}</span></label>`).join('')||`${empty('none')}`}</div>
+          ${people.map(s=>`<div class="list-item" style="gap:var(--sp-2);align-items:center;padding:var(--sp-1) var(--sp-2)">
+            <label style="display:flex;gap:var(--sp-2);align-items:center;flex:1;min-width:0;cursor:pointer"><input type="checkbox" class="hotchk" value="${esc(s.StaffID)}" style="width:auto" onchange="A_hotSel(this)"/><span>${esc(nmn(s))}</span></label>
+            <input type="number" min="0" inputmode="decimal" class="hotamt" data-id="${esc(s.StaffID)}" placeholder="฿" aria-label="${EN()?'Amount':'จำนวนเงิน'}" style="width:6.5em;flex:none" oninput="A_hotSel()"/></div>`).join('')||`${empty('none')}`}</div>
+        <div id="hotAmtSum" class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-1)"></div>
         <!-- Children coming in with them. Ticking a name is what OPENS that child's check-in on a day
              the school is otherwise shut — for them the day then behaves like any other. Tick nobody
              and only the teacher's own clock opens. -->
@@ -16760,8 +16767,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <small class="muted" style="display:block;margin-bottom:var(--sp-1)">${EN()
           ? 'Tick a child to open their check-in / pick-up that day — attendance, the journal, the history and the late pick-up charge all work as usual. Tick nobody and only the teacher clocks in.'
           : 'ติ๊กชื่อนักเรียนเพื่อเปิดการรับ-ส่งของวันนั้น — การลงเวลา สมุดรายวัน ประวัติ และ OT รับช้า ทำงานเหมือนวันปกติ · ไม่ติ๊กใครเลย = เปิดเฉพาะการลงเวลาของคุณครู'}</small>
+        ${HOT_FEE_NOTE()}
+        <label class="field"><span>${EN()?'Same price for every child ticked (฿)':'ราคาเท่ากันทุกคนที่ติ๊ก (฿)'}</span><input type="number" min="0" inputmode="decimal" id="hotFeeAll" placeholder="${EN()?'optional':'ไม่บังคับ'}" oninput="A_hotFillFee(this.value,'hotStd')"/></label>
         <div id="hotStd" style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
           ${skel('lines',2)}</div>
+        <div id="hotFeeSum" style="font-size:var(--fs-1);margin-top:var(--sp-1)"></div>
         <button class="btn block green" style="margin-top:var(--sp-2)" onclick="A_hotAdd(this)">${ic('save')} ${esc(t('c.save'))}</button>
       </details>
       ${hol.length?`<div class="spread" style="margin:var(--sp-2) 0"><b>${EN()?'This month':'เดือนนี้'} (${hol.length})</b><b>${esc(baht(total))}</b></div>`:''}
@@ -16771,11 +16781,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     A_hotDate();
     // fill in each record's "children on this day" line — one call per DATE, not per record
     [...new Set(hol.map(o=>ymd(o.Date)))].forEach(async d=>{
-      let l=null; try{ l=await api('holidayAttendList',{date:d}); }catch(e){}
+      let l=null; try{ l=await api('holidayAttendList',{date:d,staffId:USER.staffId}); }catch(e){}
       const el=document.getElementById('hotKids_'+d); if(!el)return;
       const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
       el.innerHTML = (l&&l.count)
-        ? `👶 ${EN()?'children that day':'นักเรียนวันนั้น'} (${l.count}): <b>${l.students.map(s=>esc(dn(s))).join(', ')}</b>`
+        ? `👶 ${EN()?'children that day':'นักเรียนวันนั้น'} (${l.count}): <b>${l.students.map(s=>esc(dn(s))+hotFeeTag(s)).join(', ')}</b>`
         : `👶 <span class="muted">${EN()?'no children that day — the teacher\'s clock only':'ไม่มีนักเรียนวันนั้น — เปิดเฉพาะการลงเวลาของครู'}</span>`;
     });
   };
@@ -16789,9 +16799,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_hotKidsEdit=async(date)=>{
     let list=A_CACHE.students;
     if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
-    let cur=[]; let staff=[];
-    try{ const l=await api('holidayAttendList',{date}); cur=l.students||[]; staff=l.staff||[]; }catch(e){}
-    const on={}; cur.forEach(x=>{ on[x.studentId]=1; });
+    let cur=[]; let staff=[]; let dfltFee='';
+    try{ const l=await api('holidayAttendList',{date,staffId:USER.staffId}); cur=l.students||[]; staff=l.staff||[]; dfltFee=l.defaultFee==null?'':l.defaultFee; }catch(e){}
+    const curBy={}; cur.forEach(x=>{ curBy[x.studentId]=x; });
     const active=(list||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='WITHDRAWN'
       && String(s.Status||'').toUpperCase()!=='EXPORTED');
     const byClass={}; active.forEach(s=>{ const c=s.Class||(EN()?'(no class)':'(ยังไม่จัดชั้น)'); (byClass[c]=byClass[c]||[]).push(s); });
@@ -16799,26 +16809,32 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p class="muted" style="font-size:var(--fs-1)">${EN()
         ? 'Ticking a child opens their check-in for that day. This list belongs to the DAY — every teacher working that holiday shares it.'
         : 'ติ๊กชื่อเพื่อเปิดการลงเวลาของวันนั้น · รายชื่อนี้เป็นของ "วัน" — คุณครูทุกคนที่ทำงานวันหยุดนั้นใช้รายชื่อเดียวกัน'}${staff.length?` (${staff.length} ${EN()?'staff':'คน'})`:''}</p>
+      ${HOT_FEE_NOTE()}
+      <label class="field"><span>${EN()?'Same price for every child ticked (฿)':'ราคาเท่ากันทุกคนที่ติ๊ก (฿)'}</span><input type="number" min="0" inputmode="decimal" placeholder="${EN()?'optional':'ไม่บังคับ'}" oninput="A_hotFillFee(this.value,'hkList')"/></label>
       <div class="spread" style="margin:var(--sp-1) 0"><b style="font-size:var(--fs-1)">${EN()?'Selected':'เลือกแล้ว'} <span class="muted" id="hkN">(0)</span></b>
         <label style="display:flex;gap:var(--sp-2);align-items:center;font-size:var(--fs-1)"><input type="checkbox" style="width:auto" onchange="document.querySelectorAll('.hkchk').forEach(c=>c.checked=this.checked);A_hkSel()"/> ${EN()?'All':'ทั้งหมด'}</label></div>
-      <div style="max-height:50vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
+      <div id="hkList" style="max-height:50vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
         ${Object.keys(byClass).sort().map(c=>`<div style="margin-bottom:var(--sp-2)">
           <b style="font-size:var(--fs-1)">${esc(c)}</b>
-          ${sortPeople(byClass[c]).map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer;padding:var(--sp-1) var(--sp-2)">
-            <input type="checkbox" class="hkchk" value="${esc(s.StudentID)}" style="width:auto" ${on[s.StudentID]?'checked':''} onchange="A_hkSel()"/>
-            <span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted">${esc(nmSub(s))}</small>`:''}</span></label>`).join('')}
+          ${sortPeople(byClass[c]).map(s=>hotKidRow(s,{cls:'hkchk',feeCls:'hkfee',onchg:'A_hkSel()',cur:curBy[s.StudentID],dflt:dfltFee,klass:c})).join('')}
         </div>`).join('')||`${empty('none')}`}</div>
+      <div id="hkFeeSum" style="font-size:var(--fs-1);margin-top:var(--sp-1)"></div>
       <button class="btn block green" style="margin-top:var(--sp-2)" onclick="A_hotKidsSave('${esc(date)}',this)">${ic('save')} ${esc(t('c.save'))}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     A_hkSel();
   };
   window.A_hkSel=()=>{ const n=document.querySelectorAll('.hkchk:checked').length;
-    const el=document.getElementById('hkN'); if(el)el.textContent='('+n+')'; };
+    const el=document.getElementById('hkN'); if(el)el.textContent='('+n+')';
+    hotFeeSummary('hkchk','hkfee','hkFeeSum'); };
   window.A_hotKidsSave=async(date,btn)=>{ const m=btn.closest('.modal');
     const studentIds=[...m.querySelectorAll('.hkchk:checked')].map(c=>c.value);
+    const fees=hotFeesOf(m,'hkchk','hkfee'); if(!fees) return;
+    const sum=hotFeeTotals(m,'hkchk','hkfee');
+    if(sum.n && !confirm(EN()?`Issue/update holiday-care bills: ${sum.n} child(ren), total ${baht(sum.total)}?`
+        :`ออก/ปรับบิลค่าดูแลวันหยุด ${sum.n} คน รวม ${baht(sum.total)} ใช่หรือไม่?`)) return;
     btn.disabled=true;
-    try{ await api('holidayAttendSet',{staffId:USER.staffId,date,studentIds});
-      m.remove(); confirmSaved(t('c.saved')); A_hotRefresh(); }catch(e){ err(e); btn.disabled=false; } };
+    try{ const r=await api('holidayAttendSet',{staffId:USER.staffId,date,studentIds,fees});
+      m.remove(); confirmSaved(hotSavedMsg(r)); A_hotRefresh(); }catch(e){ err(e); btn.disabled=false; } };
   /**
    * The date box says, as it is typed, whether the day is one OT วันหยุด may be recorded against.
    *
@@ -16848,8 +16864,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const d=date||(document.getElementById('hotDate')||{}).value||todayStr();
     let list=A_CACHE.students;
     if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
-    let picked=[]; try{ picked=((await api('holidayAttendList',{date:d}))||{}).students||[]; }catch(e){}
-    const on={}; picked.forEach(x=>{ on[x.studentId]=1; });
+    let picked=[], dfltFee=''; try{ const l=(await api('holidayAttendList',{date:d,staffId:USER.staffId}))||{}; picked=l.students||[]; dfltFee=l.defaultFee==null?'':l.defaultFee; }catch(e){}
+    const curBy={}; picked.forEach(x=>{ curBy[x.studentId]=x; });
     const active=(list||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='WITHDRAWN'
       && String(s.Status||'').toUpperCase()!=='EXPORTED');
     const byClass={}; active.forEach(s=>{ const c=s.Class||(EN()?'(no class)':'(ยังไม่จัดชั้น)'); (byClass[c]=byClass[c]||[]).push(s); });
@@ -16858,16 +16874,66 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <label style="display:flex;gap:var(--sp-2);align-items:center;font-weight:700;font-size:var(--fs-1);cursor:pointer">
           <input type="checkbox" style="width:auto" onchange="A_hotStdClass(this,'${esc(c)}')"/> ${esc(c)}
           <span class="muted" style="font-weight:400">(${byClass[c].length})</span></label>
-        ${sortPeople(byClass[c]).map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer;padding:var(--sp-1) var(--sp-2)">
-          <input type="checkbox" class="hotstd" data-class="${esc(c)}" value="${esc(s.StudentID)}" style="width:auto" ${on[s.StudentID]?'checked':''} onchange="A_hotStdSel()"/>
-          <span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted">${esc(nmSub(s))}</small>`:''}</span></label>`).join('')}
+        ${sortPeople(byClass[c]).map(s=>hotKidRow(s,{cls:'hotstd',feeCls:'hotfee',onchg:'A_hotStdSel()',cur:curBy[s.StudentID],dflt:dfltFee,klass:c})).join('')}
       </div>`).join('') : `${empty('none')}`;
     A_hotStdSel();
   };
   window.A_hotStdSel=()=>{ const n=document.querySelectorAll('.hotstd:checked').length;
-    const el=document.getElementById('hotSN'); if(el)el.textContent='('+n+')'; };
-  window.A_hotStdAll=(cb)=>{ document.querySelectorAll('.hotstd').forEach(c=>{c.checked=cb.checked;}); A_hotStdSel(); };
-  window.A_hotStdClass=(cb,cls)=>{ document.querySelectorAll('.hotstd[data-class="'+cls.replace(/"/g,'\\"')+'"]').forEach(c=>{c.checked=cb.checked;}); A_hotStdSel(); };
+    const el=document.getElementById('hotSN'); if(el)el.textContent='('+n+')';
+    hotFeeSummary('hotstd','hotfee','hotFeeSum'); };
+  // a locked (paid) child keeps their tick — "all" and "class" must not be a way to take them off
+  window.A_hotStdAll=(cb)=>{ document.querySelectorAll('.hotstd:not(:disabled)').forEach(c=>{c.checked=cb.checked;}); A_hotStdSel(); };
+  window.A_hotStdClass=(cb,cls)=>{ document.querySelectorAll('.hotstd[data-class="'+cls.replace(/"/g,'\\"')+'"]:not(:disabled)').forEach(c=>{c.checked=cb.checked;}); A_hotStdSel(); };
+  /* ═══ 💵 ค่าดูแลวันหยุด — the price box beside each child (ผอ., 2026-11-13) ════════════════════════
+   * A price above 0 becomes a bill the family pays like any other extra charge; 0 = free; blank =
+   * "not decided yet" (no bill, and a badge on this tool until it is). A bill the family has paid or
+   * sent a slip for is LOCKED — box disabled, tick kept — because the server refuses to change it
+   * anyway, and finding that out after pressing save is a form that wastes the admin's time. */
+  const HOT_FEE_NOTE=()=>`<small class="muted" style="display:block;margin-bottom:var(--sp-1)">💵 ${EN()
+    ? 'Price per child: above 0 issues a bill to the family on save · 0 = free · blank = decide later. Default price: Settings › Staff OT.'
+    : 'ราคาต่อคน: มากกว่า 0 = ออกบิลให้ผู้ปกครองทันทีที่บันทึก · 0 = ไม่เก็บเงิน · เว้นว่าง = ยังไม่กำหนด · ราคามาตรฐานตั้งได้ที่ ตั้งค่า › OT พนักงาน'}</small>`;
+  const hotLockedLbl=x=>String(x.chargeStatus||'').toUpperCase()==='PAID'?(EN()?'paid':'ชำระแล้ว'):(EN()?'slip sent':'ส่งสลิปแล้ว');
+  function hotKidRow(s,o){ const x=o.cur||null, lock=!!(x&&x.chargeLocked);
+    // a child already on the day shows what they were priced at; a new tick starts from the default
+    const fee = x ? ((String(x.feeStatus||'').toUpperCase()==='SET')?x.fee:'') : (o.dflt==null?'':o.dflt);
+    const pend = x && String(x.feeStatus||'').toUpperCase()==='PENDING';
+    return `<div class="list-item" style="gap:var(--sp-2);align-items:center;padding:var(--sp-1) var(--sp-2)">
+      <label style="display:flex;gap:var(--sp-2);align-items:center;flex:1;min-width:0;cursor:pointer">
+        <input type="checkbox" class="${o.cls}" data-class="${esc(o.klass||'')}" value="${esc(s.StudentID)}" style="width:auto" ${x?'checked':''} ${lock?'disabled':''} onchange="${o.onchg}"/>
+        <span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted">${esc(nmSub(s))}</small>`:''}
+          ${pend?` <span class="pill wait" style="font-size:var(--fs-1)">⏳ ${EN()?'no price yet':'ยังไม่กำหนดราคา'}</span>`:''}
+          ${lock?` <span class="pill ok" style="font-size:var(--fs-1)">🔒 ${esc(hotLockedLbl(x))}</span>`:''}</span></label>
+      <input type="number" min="0" inputmode="decimal" class="${o.feeCls}" data-sid="${esc(s.StudentID)}" value="${esc(fee)}" placeholder="฿"
+        aria-label="${EN()?'Price':'ราคา'}" style="width:6.5em;flex:none" ${lock?'disabled':''} oninput="${o.onchg}"/></div>`; }
+  /** what the family will be billed for the ticked children, said before anything is saved */
+  function hotFeeTotals(root,cls,feeCls){ let n=0,total=0,blank=0,free=0;
+    root.querySelectorAll('.'+cls+':checked').forEach(c=>{ const f=root.querySelector('.'+feeCls+'[data-sid="'+c.value+'"]');
+      const v=f?String(f.value).trim():''; if(v===''){ blank++; return; } const a=Number(v)||0; if(a>0){ n++; total+=a; } else free++; });
+    return { n, total, blank, free }; }
+  function hotFeeSummary(cls,feeCls,outId){ const el=document.getElementById(outId); if(!el) return;
+    const m=el.closest('.modal')||document; const t2=hotFeeTotals(m,cls,feeCls);
+    el.innerHTML = (t2.n||t2.blank||t2.free) ? `🧾 ${EN()?'Bills':'บิลที่จะออก'}: <b>${t2.n} ${EN()?'child(ren)':'คน'} · ${esc(baht(t2.total))}</b>`
+      + (t2.free?` · ${EN()?'free':'ไม่เก็บเงิน'} ${t2.free}`:'')
+      + (t2.blank?` · <span style="color:var(--warn,#b26a00)">⏳ ${EN()?'no price yet':'ยังไม่กำหนดราคา'} ${t2.blank}</span>`:'') : ''; }
+  /** { studentId: amount|'' } for the ticked children — or null (and a toast) when a box is not a number */
+  function hotFeesOf(root,cls,feeCls){ const out={}; let bad='';
+    root.querySelectorAll('.'+cls+':checked').forEach(c=>{ const f=root.querySelector('.'+feeCls+'[data-sid="'+c.value+'"]');
+      if(!f||f.disabled) return;            // locked: the server keeps it as it is
+      const v=String(f.value).trim(); if(v!==''&&!(Number(v)>=0)) bad=c.value; out[c.value]=v===''?'':Number(v); });
+    if(bad){ toast(EN()?'A price must be a number, 0 or more':'ราคาต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป'); return null; }
+    return out; }
+  window.A_hotFillFee=(v,boxId)=>{ const box=document.getElementById(boxId); if(!box) return;
+    box.querySelectorAll('input[type=number][data-sid]:not(:disabled)').forEach(f=>{ f.value=v; });
+    const any=box.querySelector('.hkchk')?'A_hkSel':'A_hotStdSel'; window[any](); };
+  /** the label beside a name on the month list: its price, or that it has none yet */
+  function hotFeeTag(x){ const st=String(x.feeStatus||'').toUpperCase();
+    if(st==='PENDING') return ` <span class="pill wait" style="font-size:var(--fs-1)">⏳ ${EN()?'no price':'ยังไม่กำหนดราคา'}</span>`;
+    if(st==='SET') return Number(x.fee)>0?` <small class="muted">${esc(baht(x.fee))}${x.chargeLocked?' 🔒':''}</small>`:` <small class="muted">${EN()?'free':'ฟรี'}</small>`;
+    return ''; }
+  function hotSavedMsg(r){ const b=(r&&r.billed)||[]; const n=b.length, tot=b.reduce((a,x)=>a+Number(x.amount||0),0);
+    const pend=((r&&r.pending)||[]).length;
+    return t('c.saved') + (n?(EN()?` · ${n} bill(s), ${baht(tot)}`:` · บิล ${n} คน รวม ${baht(tot)}`):'')
+      + (pend?(EN()?` · ${pend} without a price`:` · ยังไม่กำหนดราคา ${pend} คน`):''); }
   // the calendar underneath is showing the same days — refresh its copy too, or a grant appears in
   // the list and not on the calendar until the screen is reopened
   const A_hotRefresh=async()=>{ const x=document.querySelector('.modal'); if(x)x.remove();
@@ -16876,26 +16942,42 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       if(window._CALRENDER){ const w=document.getElementById('calWrap'); if(w) w.innerHTML=window._CALRENDER(); }
     }catch(e){}
     A_holidayOT(); };
-  window.A_hotSel=()=>{ const n=document.querySelectorAll('.hotchk:checked').length; const el=document.getElementById('hotN'); if(el)el.textContent='('+n+')'; };
-  window.A_hotToggleAll=(cb)=>{ document.querySelectorAll('.hotchk').forEach(c=>{c.checked=cb.checked;}); A_hotSel(); };
+  window.A_hotSel=(cb)=>{
+    // ticking somebody gives them the shared amount if their own box is still empty
+    if(cb&&cb.checked){ const a=document.querySelector('.hotamt[data-id="'+cb.value+'"]'), all=document.getElementById('hotAmount');
+      if(a&&!String(a.value).trim()&&all&&String(all.value).trim()) a.value=all.value; }
+    const n=document.querySelectorAll('.hotchk:checked').length; const el=document.getElementById('hotN'); if(el)el.textContent='('+n+')';
+    const sum=document.getElementById('hotAmtSum'); if(sum){ const t2=hotAmtTotals(); sum.innerHTML=n?`💰 ${EN()?'Total':'รวม'} <b>${esc(baht(t2.total))}</b>${t2.missing?` · <span style="color:var(--bad)">${EN()?'no amount':'ยังไม่ใส่จำนวนเงิน'} ${t2.missing}</span>`:''}`:''; } };
+  window.A_hotToggleAll=(cb)=>{ document.querySelectorAll('.hotchk').forEach(c=>{c.checked=cb.checked; if(cb.checked) A_hotSel(c);}); A_hotSel(); };
+  window.A_hotFillAmt=(v)=>{ document.querySelectorAll('.hotchk:checked').forEach(c=>{ const a=document.querySelector('.hotamt[data-id="'+c.value+'"]'); if(a) a.value=v; }); A_hotSel(); };
+  function hotAmtTotals(){ let total=0,missing=0; const amounts={};
+    document.querySelectorAll('.hotchk:checked').forEach(c=>{ const a=document.querySelector('.hotamt[data-id="'+c.value+'"]'); const v=Number(a?a.value:0)||0;
+      if(v>0){ total+=v; amounts[c.value]=v; } else missing++; });
+    return { total, missing, amounts }; }
   window.A_hotAdd=async(btn)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value:'';};
     const staffIds=[...m.querySelectorAll('.hotchk:checked')].map(c=>c.value);
     if(!staffIds.length){toast(EN()?'Select at least one':'เลือกพนักงานอย่างน้อย 1 คน');return;}
-    const amount=Number(g('hotAmount'))||0; if(amount<=0){toast(EN()?'Enter the amount':'ระบุจำนวนเงิน');return;}
+    const at=hotAmtTotals(); if(at.missing){toast(EN()?'Enter an amount for every ticked person':'ใส่จำนวนเงินให้ทุกคนที่ติ๊ก');return;}
     const note=g('hotNote').trim(); if(!note){toast(EN()?'Enter the details':'ระบุรายละเอียดการทำงาน');return;}
     // the server refuses a working day anyway; asking here keeps the answer in front of the person
     try{ const dc=await api('holidayDateCheck',{date:g('hotDate')});
       if(dc && !dc.holiday){ toast(EN()?'Holiday OT can only be recorded on a holiday':'OT วันหยุดบันทึกได้เฉพาะวันหยุดเท่านั้น'); return; }
     }catch(e){}
     const studentIds=[...m.querySelectorAll('.hotstd:checked')].map(c=>c.value);
-    // said out loud before it is written: the amount is PER PERSON, so ticking five people spends five times it
-    if(!confirm((EN()?`Pay ${baht(amount)} each to ${staffIds.length} staff?`:`จ่าย ${baht(amount)} ต่อคน ให้ ${staffIds.length} คน (รวม ${baht(amount*staffIds.length)}) ใช่หรือไม่?`)
-      +(studentIds.length?(EN()?`\nAnd open the day for ${studentIds.length} child(ren).`:`\nและเปิดวันนั้นให้นักเรียน ${studentIds.length} คน`):'')))return;
-    try{ await api('adminAddHolidayOT',{staffId:USER.staffId,staffIds,date:g('hotDate'),amount,note});
-      // the children are a fact about the DAY, not about one teacher's OT row — saved separately, and
-      // saved even when the list is empty, because "nobody is coming" is an answer too
-      await api('holidayAttendSet',{staffId:USER.staffId,date:g('hotDate'),studentIds});
-      confirmSaved(t('c.saved')); A_hotRefresh(); }catch(e){err(e);} };
+    const fees=hotFeesOf(m,'hotstd','hotfee'); if(!fees) return;
+    const fs2=hotFeeTotals(m,'hotstd','hotfee');
+    // said out loud before it is written — what the school PAYS and what it CHARGES, both in baht
+    if(!confirm((EN()?`Pay ${staffIds.length} staff, total ${baht(at.total)}?`:`จ่าย OT วันหยุด ${staffIds.length} คน รวม ${baht(at.total)} ใช่หรือไม่?`)
+      +(studentIds.length?(EN()?`\nOpen the day for ${studentIds.length} child(ren)`:`\nเปิดวันนั้นให้นักเรียน ${studentIds.length} คน`):'')
+      +(fs2.n?(EN()?` · bills ${fs2.n}, total ${baht(fs2.total)}`:` · ออกบิล ${fs2.n} คน รวม ${baht(fs2.total)}`):'')
+      +(fs2.blank?(EN()?` · ${fs2.blank} without a price`:` · ยังไม่กำหนดราคา ${fs2.blank} คน`):'')))return;
+    try{
+      /* THE CHILDREN FIRST. They are a fact about the DAY (shared by every teacher on it), saved even when
+       * the list is empty — and they are the half the server can REFUSE (a bill a family already paid).
+       * Refused first means nothing was paid out on a form that then has to be filled in again. */
+      const r=await api('holidayAttendSet',{staffId:USER.staffId,date:g('hotDate'),studentIds,fees});
+      await api('adminAddHolidayOT',{staffId:USER.staffId,staffIds,date:g('hotDate'),amounts:at.amounts,note});
+      confirmSaved(hotSavedMsg(r)); A_hotRefresh(); }catch(e){err(e);} };
   window.A_hotSave=async(otId)=>{ const a=document.getElementById('hot_a_'+otId), n=document.getElementById('hot_n_'+otId);
     try{ await api('adminEditOT',{staffId:USER.staffId,otId,amount:a?a.value:undefined,note:n?n.value:undefined}); toast(t('c.saved')); A_hotRefresh(); }catch(e){err(e);} };
   window.A_hotDel=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return;

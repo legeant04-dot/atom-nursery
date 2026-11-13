@@ -145,8 +145,8 @@ console.log('\n4) 🔴 through the real dispatch_ — who may read, and the live
     out.lateOld = call('submitJournalsMany', { studentIds: ['STD-1'], date: Y8 }, tok.T);
     out.late = call('submitJournalsMany', { studentIds: ['STD-1'], date: Y1 }, tok.T);
     var rows = readObjects_(sheet_(main, 'DAILY_JOURNAL'));
-    out.rowY1 = rows.filter(function (r) { return String(r.Date).slice(0, 10) === Y1; }).map(function (r) { return { s: r.Status, th: r.Theme }; });
-    out.rowY8 = rows.filter(function (r) { return String(r.Date).slice(0, 10) === Y8; }).map(function (r) { return r.Status; });
+    out.rowY1 = rows.filter(function (r) { return ymdCell_(r.Date) === Y1; }).map(function (r) { return { s: r.Status, th: r.Theme }; });
+    out.rowY8 = rows.filter(function (r) { return ymdCell_(r.Date) === Y8; }).map(function (r) { return r.Status; });
     return JSON.stringify(out);
   })`)));
   eq('a teacher cannot read the school\'s calendar', res.T.month, { ERR: 'NO_PERMISSION' });

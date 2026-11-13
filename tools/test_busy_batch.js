@@ -128,7 +128,7 @@ console.log('\n6) 🔒 กติกาที่ห้ามเปลี่ยน
    * refused, so it would write nothing anyway — but "would write nothing anyway" is a property of
    * the handlers, and the lock exists precisely so that correctness is not a property of the
    * handlers. Skipped outright, so there is no argument left to get wrong. */
-  ok_('🔴 ตอนล็อกไม่ว่าง ไม่เรียก persist เลย', /if \(!isBusy\) ctx\.persist\(\)/.test(gas));
+  ok_('🔴 ตอนล็อกไม่ว่าง ไม่เรียก persist เลย', /if \(!isBusy( && !isFrozen)?\) ctx\.persist\(\)/.test(gas));   // && !isFrozen: WRITE_FREEZE (src/Freeze.gs) skips it too
   ok_('ตัวปฏิเสธรายข้ออยู่ใน handleBatch', /isBusy && typeof isMutatingAction_/.test(gas));
   ok_('และทางเลี่ยงนี้เปิดให้เฉพาะ batch', /\(action === 'batch'\) \? function \(\)/.test(code));
   ok_('ข้อความ BUSY มีที่มาที่เดียว', /var BUSY_MSG_ =/.test(code));

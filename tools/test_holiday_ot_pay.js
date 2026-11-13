@@ -136,7 +136,8 @@ console.log('\n4) the teacher is told');
 {
   ok_('granting it writes to that teacher\'s own inbox', /inboxAdd_\('ot', '🎉 OT วันหยุด '/.test(ot));
   ok_('...addressed to them, not the shared Admin inbox', /'ot\|' \+ target \+ '\|' \+ date, target\);/.test(ot));
-  ok_('the message says the amount, the day and why', /amount \+ ' บาท\\n' \+ note/.test(ot));
+  // each person's OWN amount since 2026-11-13 (each[target]), not one shared figure
+  ok_('the message says the amount, the day and why', /each\[target\] \+ ' บาท\\n' \+ note/.test(ot));
   ok_('...and which month\'s pay it will appear in', /จะรวมในเงินเดือนเดือน/.test(ot));
   ok_('a failure to notify never loses the OT itself', /try \{\s*\n\s*inboxAdd_\('ot'[\s\S]{0,400}\} catch \(e\) \{\}/.test(ot));
   // the per-staff inbox is what the teacher's bell already reads
