@@ -188,7 +188,8 @@ console.log('\n6) the screen: ดำเนินการ → คุณครู
     /class="hotchk"/.test(scr) && /id="hotDate"/.test(scr) && /id="hotNote"/.test(scr) && /id="hotAmount"/.test(scr));
   ok_('the reason is a long text box, not a one-line input', /<textarea id="hotNote" rows="3"/.test(scr));
   ok_('several staff can be ticked at once, with a select-all', /A_hotToggleAll/.test(scr) && /id="hotAll"/.test(scr));
-  ok_('staff who have left are not offered', /\.filter\(s=>!s\.ended\)/.test(scr));
+  // reviewStaff carries !s.ended (checked in test_staff_performance) — since 2026-11-13 the picker uses it.
+  ok_('staff who have left are not offered', /const people=reviewStaff\(/.test(scr) && /reviewStaff = list =>[^;]*!s\.ended/.test(app));
   ok_('the count of who is ticked is shown as it changes', /A_hotSel/.test(scr));
   // an amount PER PERSON times five people is five times the money — say the total before writing it.
   // Since 2026-11-13 each person has their OWN amount, so the total is the sum of the boxes (hotAmtTotals).
@@ -266,6 +267,12 @@ console.log('\n7) the real GAS code, against a sheet that predates the Kind colu
   eq('re-approving and editing hours leave both amounts standing', res.after, [800, 800]);
   eq('and the four refusals are refused by the code that really runs', res.refused.filter(x => x !== 'ALLOWED').length, 4);
   eq('nothing extra was written along the way', res.total, 2);
+}
+
+// ผอ. 2026-11-13: only teachers can be ticked — Admin/Observer/the director are not on the list.
+{
+  const m = app.match(/window\.A_holidayOT=async[\s\S]{0,1200}?const people=([^;]+);/);
+  ok_('teachers only in the picker (reviewStaff: Role Teacher, not left, not noPayroll)', !!m && m[1] === 'reviewStaff(A_CACHE.staff)');
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
