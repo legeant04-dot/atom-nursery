@@ -90,4 +90,29 @@ function verifySession(token, secret, opts) {
   return p;
 }
 
-module.exports = { verifySession, sign_, norm_ };
+/**
+ * "ออกจากระบบทุกเครื่อง" — the same rule as Auth.gs sessionEpochs_ / sessionEpochOf_, one value read.
+ *
+ * SCHOOL_CONFIG 'SessionEpochs' is a JSON map uid → ms. A token minted (iat) before its uid's number is
+ * dead. Written by Apps Script's bumpSessionEpoch_ (signOutEverywhere, an admin ending someone's
+ * sessions); read here so a revoked phone cannot keep working on the fast path.
+ *
+ * 🔴 UNREADABLE MEANS NOBODY IS REVOKED — exactly Auth.gs. A corrupt cell must never sign the whole
+ * school out at 07:30. The cost of that choice is that a corrupt cell un-revokes; Apps Script has made
+ * the same trade and the two paths must answer the same question the same way.
+ */
+const SESSION_EPOCH_KEY = 'SessionEpochs';
+function parseEpochs(raw) {
+  try {
+    const t = String(raw == null ? '' : raw).trim();
+    if (!t) return {};
+    const o = JSON.parse(t);
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  } catch (e) { return {}; }
+}
+function epochOf(map, uid) {
+  const n = Number((map || {})[String(uid == null ? '' : uid)]);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+
+module.exports = { verifySession, sign_, norm_, parseEpochs, epochOf, SESSION_EPOCH_KEY };

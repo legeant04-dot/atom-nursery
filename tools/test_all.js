@@ -78,7 +78,8 @@ const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load
   'test_fast_route_checkin_live.js', 'test_fast_route_pickup_live.js',
   // 2026-11-11 — W4 3a: the bill routes, BILLING deletes included
   'test_fast_route_bills_live.js', 'test_fast_route_payments_live.js', 'test_fast_route_prepay_live.js',
-  'test_fast_route_payroll_live.js']);
+  'test_fast_route_payroll_live.js',
+  'test_fast_host_security_live.js']);
 const NEEDS_DB = { test: f => DB_SUITES.has(f) };
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')

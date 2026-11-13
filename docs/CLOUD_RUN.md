@@ -14,6 +14,7 @@
 | เครื่องทดสอบ | ตั้ง localStorage `atom_fast_pilot` = URL ของบริการ `atom-fast-120486339414` → **เครื่องนั้นเครื่องเดียว** ใช้เส้นเร็ว · URL อื่นถูกเมิน (token ส่งไปที่อื่นไม่ได้) · คำตอบ `NOT_ON_FAST_HOST` / `READ_ONLY_HOST` ถูกส่งต่อไป Apps Script อัตโนมัติ · โฮสต์ล่ม = การอ่านไป GAS และพักเส้นเร็ว 5 นาที · การเขียนไม่ถูกส่งซ้ำ |
 | รหัสผ่านฐานข้อมูล | อยู่ใน **Secret Manager** เท่านั้น ไม่อยู่ใน image ไม่อยู่ใน repo ไม่อยู่ในแชท |
 | SESSION_SECRET | ช่วงทดสอบใช้ **ค่าใหม่ที่สุ่มขึ้นมาเอง** ไม่ใช่ค่าจริงของ Apps Script — token จริงจึงใช้กับโฮสต์นี้ไม่ได้เลย จะเปลี่ยนเป็นค่าจริงในวันย้าย |
+| เรียกจากเบราว์เซอร์ | เฉพาะหน้าเว็บของแอป (2026-11-13): `https://legeant04-dot.github.io` · `https://atomnurseryapp.com` · `https://www.atomnurseryapp.com` — เว็บอื่นได้ 403 `BAD_ORIGIN` · ตั้ง env `ALLOWED_ORIGINS` (คั่นด้วย ,) เพื่อแทนรายการนี้ เช่นหน้า UAT · `tools/test_fast_host_cors.js` |
 | อัปโหลด | `.gcloudignore` เป็น whitelist — `secrets/` ลายเซ็น ภาพใบประกาศ ฟอนต์ ไม่มีทางขึ้นไป |
 
 ---
