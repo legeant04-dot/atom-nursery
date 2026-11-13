@@ -16731,7 +16731,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     A_CACHE.staff=staff||A_CACHE.staff;
     const hol=(rows||[]).filter(isHolOT);
     const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
-    const people=(A_CACHE.staff||[]).filter(s=>!s.ended);
+    // Teachers only (ผอ., 2026-11-13: "เอาเฉพาะรายชื่อคุณครู Admin/Observe/ผอ. เอาชื่อออก") — the same
+    // rule as the annual review: Role Teacher (คุณครู/หัวหน้าครู/ผู้ช่วย), not left, not noPayroll.
+    // Rows already saved for someone outside it still show in the month's list below.
+    const people=reviewStaff(A_CACHE.staff);
     const row=o=>`<div class="card" style="padding:var(--sp-2)">
       <div class="spread"><b>${esc(dnick(o))}</b><span class="pill ok" style="font-size:var(--fs-1)">${esc(ddmmyyyy(o.Date))}</span></div>
       <label class="field" style="margin-top:var(--sp-2)"><span>${EN()?'Amount (฿)':'จำนวนเงิน (฿)'}</span><input type="number" min="0" id="hot_a_${o.OTRecordID}" value="${esc(o.Amount)}"/></label>
