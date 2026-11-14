@@ -31,6 +31,16 @@
       "port": 8093
     },
     {
+      "name": "atom-present",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tools/serve.js",
+        "8094",
+        "docs/present"
+      ],
+      "port": 8094
+    },
+    {
       "name": "atom-design",
       "runtimeExecutable": "node",
       "runtimeArgs": [
