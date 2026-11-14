@@ -221,8 +221,10 @@ module.exports = function (files, srcDir) {
   files.forEach(f => vm.runInContext(fs.readFileSync(path.join(srcDir, f + '.gs'), 'utf8'), g, { filename: f + '.gs' }));
   let pgLog = null, pgFake = null;
   if (PGMODE) {
+    /* LINE_SEND=on: this models the LIVE project after the move, which is given LINE_SEND=on that night.
+     * Unset on Postgres means "testers only" (src/Line.gs lineSendCfg_ — tools/test_line_allow.js). */
     Object.assign(props, { DB_BACKEND: 'pg', PG_TARGET: 'staging', PG_NO_CACHE: 'yes',
-      PG_TENANT_ID: '00000000-0000-4000-8000-000000000001' });
+      PG_TENANT_ID: '00000000-0000-4000-8000-000000000001', LINE_SEND: 'on' });
     const fake = require('./pg_fake_jdbc.js')(g, store, props);
     g.Jdbc = fake.Jdbc; pgLog = fake.log; pgFake = fake;
     // proof the door was really used — a suite that never reached it would otherwise pass for the wrong reason

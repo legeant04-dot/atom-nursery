@@ -63,12 +63,55 @@ function verifyLineAccessToken_(accessToken) {
  */
 var LINE_DEFER_ = null;   // an array only while a write-locked section is running
 
+/* 🧪 WHO MAY RECEIVE LINE FROM THIS PROJECT (2026-11-14 · UAT)
+ *
+ * UAT runs on a COPY of this project, pointed at a copy of the real data — real parents' LINE ids
+ * included — and with the school's real LINE token. Without this, a tester pressing "send report" would
+ * reach a real family. Script Properties (per project, so the copy and the live script differ):
+ *
+ *   LINE_SEND   on    — everyone, as it has always been
+ *               allow — only the ids in LINE_ALLOW (an empty list = nobody)
+ *               off   — nobody
+ *   LINE_ALLOW  LINE user ids (U + 32 hex), separated by commas or spaces; anything else is ignored
+ *
+ * 🔴 NOT SET means: on Sheets → on (the live project today is untouched) · on Postgres → ALLOW.
+ *    Before the move only a copy runs on Postgres, so a copy that nobody configured cannot reach a
+ *    family. On move night the live project must be given LINE_SEND=on (docs/ROLLOUT_PLAN.md) —
+ *    forgetting it is a silence that shows (LINE diag says so), never a message to the wrong person.
+ * 🔴 A TYPO is allow, never on.
+ * Checked on every push, inside linePush_ — the one pipe every message goes through (see below) —
+ * and in the queue, so a held message is never counted as sent. The fast host has the same switch
+ * (server/line_send.js LINE_SEND=allow + LINE_ALLOW). */
+function lineSendCfg_() {
+  var p = PropertiesService.getScriptProperties();
+  var raw = String(p.getProperty('LINE_SEND') || '').toLowerCase().trim(), mode;
+  if (raw === 'on' || raw === 'allow' || raw === 'off') mode = raw;
+  else if (raw) mode = 'allow';
+  else {
+    var pg = true;
+    try { pg = (typeof pgEnabled_ === 'function') ? pgEnabled_() : false; } catch (e) { pg = true; }
+    mode = pg ? 'allow' : 'on';
+  }
+  var allow = {}, n = 0;
+  String(p.getProperty('LINE_ALLOW') || '').split(/[\s,]+/).forEach(function (u) {
+    if (/^U[0-9a-f]{32}$/.test(u) && !allow[u]) { allow[u] = true; n++; }
+  });
+  return { mode: mode, allow: allow, count: n };
+}
+function lineAllowed_(uid) {
+  var c = lineSendCfg_();
+  if (c.mode === 'on') return true;
+  if (c.mode === 'off') return false;
+  return !!c.allow[String(uid || '')];
+}
+
 function linePushText_(toUid, text) {
   if (LINE_DEFER_) {
     // the token/recipient check is cheap and local — refuse here rather than queue a push that
     // could never have gone, so the caller's count stays as truthful as it was before
     var tok = getConfig_('LineChannelAccessToken', '');
     if (!toUid || !tok || String(tok).indexOf('<FILL') === 0) return false;
+    if (!lineAllowed_(toUid)) return false;               // 🧪 held — never counted as sent
     LINE_DEFER_.push([toUid, String(text)]);
     return true;
   }
@@ -109,6 +152,8 @@ function linePush_(toUid, messages) {
    * และเป็นจุดที่ "ฟีเจอร์ที่เขียนพรุ่งนี้" จะถูกปิดไปด้วยโดยไม่มีใครต้องจำ
    */
   try { if (typeof demoOn_ === 'function' && demoOn_()) { Logger.log('linePush_ skipped (demo mode)'); return false; } } catch (e) {}
+  /* 🧪 UAT: only the testers (lineSendCfg_) — the log keeps the last 6 characters, never the text */
+  if (!lineAllowed_(toUid)) { Logger.log('linePush_ held (LINE_SEND) …' + String(toUid || '').slice(-6)); return false; }
   var token = getConfig_('LineChannelAccessToken', '');
   if (!toUid || !token || String(token).indexOf('<FILL') === 0) {
     Logger.log('linePush_ skipped (no token or recipient)');
@@ -400,6 +445,12 @@ function handleLineDiag(p) {
   p = p || {};
   var token = getConfig_('LineChannelAccessToken', '');
   var out = { tokenConfigured: !!(token && String(token).indexOf('<FILL') !== 0) };
+  /* 🧪 who this project may send to — so "LINE stopped" after the move is one look, not a hunt */
+  try {
+    var lc = lineSendCfg_(); out.sendMode = lc.mode; out.allowCount = lc.count;
+    out.sendNote = lc.mode === 'on' ? '' : lc.mode === 'off' ? 'ปิดการส่ง LINE (LINE_SEND=off)'
+      : 'ส่งเฉพาะผู้ทดสอบ ' + lc.count + ' คน (LINE_SEND=allow) — ระบบจริงต้องตั้ง LINE_SEND=on';
+  } catch (e) {}
   if (!out.tokenConfigured) { out.note = 'LineChannelAccessToken ยังไม่ได้ตั้งค่าใน SCHOOL_CONFIG'; return out; }
   var hdr = { Authorization: 'Bearer ' + token };
   function get(url) {
@@ -422,7 +473,8 @@ function handleLineDiag(p) {
     out.overLimit = out.remaining <= 0;
   }
   // optional live test push to a given UID (e.g. the admin's own)
-  if (p.testUid) {
+  if (p.testUid && !lineAllowed_(p.testUid)) out.testPush = { held: true, note: 'LINE นี้ไม่อยู่ในรายชื่อผู้ทดสอบ (LINE_ALLOW)' };
+  else if (p.testUid) {
     var r = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post', contentType: 'application/json', headers: hdr, muteHttpExceptions: true,
       payload: JSON.stringify({ to: p.testUid, messages: [{ type: 'text', text: '🔔 ทดสอบการแจ้งเตือนจากระบบ Atom (' + nowStr_() + ')' }] })

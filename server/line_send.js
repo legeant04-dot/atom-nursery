@@ -18,24 +18,39 @@
  * 🔴 THE TOKEN NEVER ENTERS THE SANDBOX. It is read here, from the environment (Secret Manager).
  *
  * Modes (LINE_SEND): 'capture' (the default) writes down and sends nothing — staging; 'on' sends;
- * 'off' does not even pretend, so a handler sees "no LINE" exactly as with no token on Apps Script.
+ * 'off' does not even pretend, so a handler sees "no LINE" exactly as with no token on Apps Script;
+ * 'allow' (UAT, 2026-11-14) sends ONLY to the LINE ids in LINE_ALLOW (comma/space separated; empty =
+ * nobody) — the same switch as Apps Script's lineSendCfg_ (src/Line.gs). Checked twice: the sandbox's
+ * linePush_ answers false for anyone else (as Apps Script does, so counts match), and sendAll holds
+ * anything that still arrives — result 'held', counted, never sent.
  */
 'use strict';
 const crypto = require('crypto');
 
 const LINE_PUSH = 'https://api.line.me/v2/bot/message/push';
-const MODES = { off: 1, capture: 1, on: 1 };
+const MODES = { off: 1, capture: 1, on: 1, allow: 1 };
 
 function mode(env) {
   const m = String((env || process.env).LINE_SEND || 'capture').toLowerCase().trim();
   return MODES[m] ? m : 'capture';                    // a typo must never mean "send"
+}
+/** LINE_ALLOW → a Set of LINE user ids (U + 32 hex). Anything else in the list is ignored. */
+function allowList(env) {
+  return new Set(String((env || process.env).LINE_ALLOW || '').split(/[\s,]+/).filter(u => /^U[0-9a-f]{32}$/.test(u)));
+}
+/** May this id receive LINE from this host? capture writes everything down (staging sends nothing). */
+function allowed(uid, env) {
+  const m = mode(env);
+  if (m === 'on' || m === 'capture') return true;
+  if (m === 'off') return false;
+  return allowList(env).has(String(uid || ''));
 }
 /** Does linePush_ in the sandbox answer "sent"? On Apps Script: a recipient AND a token. Here the token
  *  is the host's (on), or pretended (capture — so staging records what WOULD go). Off = no token. */
 function ready(env) {
   const m = mode(env), tok = String((env || process.env).LINE_TOKEN || '');
   if (m === 'capture') return true;
-  if (m === 'on') return !!tok && tok.indexOf('<FILL') !== 0;
+  if (m === 'on' || m === 'allow') return !!tok && tok.indexOf('<FILL') !== 0;
   return false;
 }
 const tail = uid => String(uid || '').slice(-6);
@@ -77,26 +92,32 @@ async function sendAll(pushes, opts) {
   opts = opts || {};
   const env = opts.env || process.env;
   const m = mode(env), list = (pushes || []).filter(p => p && p.to);
-  const out = { mode: m, n: list.length, sent: 0, failed: 0, pending: 0, results: list.map(p => ({ to: tail(p.to), r: m === 'on' ? 'pending' : m })) };
-  if (!list.length || m !== 'on') return out;
+  const sends = m === 'on' || m === 'allow';
+  const okSet = m === 'allow' ? allowList(env) : null;
+  const out = { mode: m, n: list.length, sent: 0, failed: 0, pending: 0, held: 0,
+    results: list.map(p => ({ to: tail(p.to), r: !sends ? m : (okSet && !okSet.has(String(p.to)) ? 'held' : 'pending') })) };
+  out.held = out.results.filter(x => x.r === 'held').length;
+  if (!list.length || !sends) return out;
+  const go = list.map((p, i) => i).filter(i => out.results[i].r === 'pending');
+  if (!go.length) return out;
   const o = { fetch: opts.fetch || globalThis.fetch, url: opts.url || LINE_PUSH, token: String(env.LINE_TOKEN || ''),
     attemptMs: opts.attemptMs || 3000 };
-  if (!o.token) { out.results.forEach(x => { x.r = 'fail:no-token'; }); out.failed = list.length; return out; }
-  /* per recipient, in order; recipients in parallel */
+  if (!o.token) { go.forEach(i => { out.results[i].r = 'fail:no-token'; }); out.failed = go.length; return out; }
+  /* per recipient, in order; recipients in parallel — only the ones allowed */
   const byTo = new Map();
-  list.forEach((p, i) => { if (!byTo.has(p.to)) byTo.set(p.to, []); byTo.get(p.to).push(i); });
+  go.forEach(i => { const p = list[i]; if (!byTo.has(p.to)) byTo.set(p.to, []); byTo.get(p.to).push(i); });
   const chains = [...byTo.values()].map(async idx => {
     for (const i of idx) { const r = await sendOne(list[i], o); out.results[i].r = r; }
   });
   let timer;
   const cap = new Promise(res => { timer = setTimeout(res, opts.capMs || 8000); });
   try { await Promise.race([Promise.all(chains).catch(() => {}), cap]); } finally { clearTimeout(timer); }
-  out.results.forEach(x => { if (x.r === 'ok' || x.r === 'dup') out.sent++; else if (x.r === 'pending') out.pending++; else out.failed++; });
+  out.results.forEach(x => { if (x.r === 'ok' || x.r === 'dup') out.sent++; else if (x.r === 'pending') out.pending++; else if (x.r !== 'held') out.failed++; });
   return out;
 }
 
 /** the log line: who (last 6) and what happened — never what was said */
 const logLine = (action, s) => 'line ' + action + ' ' + s.mode + ' n=' + s.n + ' sent=' + s.sent + ' failed=' + s.failed +
-  (s.pending ? ' pending=' + s.pending : '') + ' ' + s.results.map(x => x.to + ':' + x.r).join(' ');
+  (s.pending ? ' pending=' + s.pending : '') + (s.held ? ' held=' + s.held : '') + ' ' + s.results.map(x => x.to + ':' + x.r).join(' ');
 
-module.exports = { sendAll, mode, ready, fingerprint, logLine, tail };
+module.exports = { sendAll, mode, ready, allowed, allowList, fingerprint, logLine, tail };

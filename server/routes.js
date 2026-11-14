@@ -649,6 +649,8 @@ function run(action, payload, raw, H, config, sink, line) {
       /* 🔴 demo mode: DemoMode alone is enough here (Apps Script also wants the ATOM_DEMO property) — stricter */
       try { if (String(b.getConfig_('DemoMode', 'false')).toLowerCase() === 'true') return false; } catch (e) { return false; }
       if (!toUid || !line.ready) return false;
+      /* 🧪 UAT allowlist — false for anyone else, as Apps Script's linePush_ answers (src/Line.gs lineSendCfg_) */
+      if (typeof line.allowed === 'function' && !line.allowed(String(toUid))) return false;
       lineOps.push({ to: String(toUid), messages: clone(messages) });
       return true;
     };

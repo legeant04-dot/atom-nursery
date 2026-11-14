@@ -222,7 +222,7 @@ async function handle(req, res, body) {
       const raw = {}, mayWrite = new Set(ROUTES_PORT.writable(callsIn)), routeWrites = [];
       /* LINE the routes wrote down in THIS attempt — an attempt that is retried, refused or rolled back
        * takes its list with it; only the attempt that commits gets to send (W2) */
-      const lineOut = { ready: LINE.ready(), out: [] };
+      const lineOut = { ready: LINE.ready(), allowed: uid => LINE.allowed(uid), out: [] };
       for (const s of ROUTES_PORT.needs(callsIn)) {
         /* SCHOOL_CONFIG was just read for M.config — reuse those rows unless a route may write it (needs ids) */
         if (s === 'SCHOOL_CONFIG' && !mayWrite.has(s)) { raw[s] = cfgRows; continue; }
