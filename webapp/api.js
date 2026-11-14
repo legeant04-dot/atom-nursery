@@ -12,7 +12,9 @@
  * to give somebody a way in quickly. Known here, the button starts loading with the page.
  * Blank = the feature is off. SCHOOL_CONFIG still overrides it for a school with its own client. */
 /* FAST_URL — โฮสต์เส้นเร็ว (docs/SPEED_FIRST_PLAN.md) · ว่าง = ใช้ Apps Script เหมือนเดิมทุกประการ
- * 🔴 เปลี่ยนค่านี้คือการสลับทั้งโรงเรียน — อ่าน FAST_ACTIONS ข้างล่างก่อนตั้งค่า */
+ * 🔴 เปลี่ยนค่านี้คือการสลับทั้งโรงเรียน — อ่าน FAST_ACTIONS ข้างล่างก่อนตั้งค่า
+ * FAST_WRITES (ไม่มีในไฟล์นี้โดยตั้งใจ) — ส่งงานประจำวัน W1–W3 ไปเส้นเร็วด้วย · ใส่โดย `build_web.js --uat` ในผลลัพธ์เท่านั้น
+ *   หรือในรุ่นคืนย้าย · ดู FAST_WRITES ข้างล่าง */
 window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', GOOGLE_CLIENT_ID: '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com', DEMO_MODE: false };
 
 (function () {
@@ -361,9 +363,9 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     if (a === 'batch') {
       const calls = (body.payload && body.payload.calls) || [];
       // ทั้ง batch ต้องไปทางเดียวกัน — ครึ่งหนึ่งไปคนละที่คือสองคำตอบจากข้อมูลคนละรอบ
-      return calls.length > 0 && calls.every(c => FAST_ACTIONS[String(c.action || '')]);
+      return calls.length > 0 && calls.every(c => fastHas(String(c.action || '')));
     }
-    return !!FAST_ACTIONS[a];
+    return fastHas(a);
   }
   /* 🔴 คำตอบที่แปลว่า "โฮสต์ไม่ได้ทำอะไรเลย ไปถาม Apps Script" — ส่งต่อได้แม้เป็นการเขียน
    * เพราะโฮสต์ตอบรหัสเหล่านี้ก่อนรัน handler หรือหลัง rollback ทั้งธุรกรรม (server/host.js):
@@ -824,6 +826,37 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     payments: 1, paymentSlips: 1, paymentLog: 1, prepayments: 1, studentCharges: 1, otDaily: 1,
     parentDue: 1, financeSummary: 1, payrollConfig: 1
   };
+  /* ---- การเขียนที่เส้นเร็วรับ (UAT / คืนย้าย · 2026-11-14) ------------------------------------
+   *
+   * งานประจำวัน W1–W3 ของ docs/FAST_HOST_WRITES_PLAN.md — ทุกตัวพิสูจน์บน staging แล้วว่าสถานะหลังเขียน
+   * เท่ากับ Apps Script ทุกแถว (server/routes.js · server/write_proven.js)
+   *
+   * 🔴 เปิดเฉพาะเมื่อ `CONFIG.FAST_WRITES === true` **และ** `CONFIG.FAST_URL` ตั้งไว้ในรุ่นที่ปล่อย
+   *    เครื่อง pilot (`atom_fast_pilot`) ไม่เปิดการเขียน — pilot ชี้ staging ขณะที่ระบบจริงยังเขียนชีต
+   *    การเขียนไปอีกที่ = ข้อมูลสองชุด · รุ่นที่ใช้กันวันนี้ไม่มี FAST_WRITES จึงไม่เปลี่ยนอะไรเลย
+   *    รุ่น UAT สร้างด้วย `node tools/build_web.js --uat` (ตั้ง FAST_URL + GAS_URL ของ UAT + FAST_WRITES)
+   * 🔴 ทุกตัวต้องเป็น "การเขียน" ตามกฎของแอปเอง (isMutating) — ไม่งั้นตอนโฮสต์ล่มจะถูกส่งซ้ำไป
+   *    Apps Script = บันทึกสองครั้ง (tools/test_fast_writes_web.js ตรวจ)
+   * ไม่อยู่ที่นี่ (อยู่ Apps Script จนกว่า ผอ. เปิดทีละกลุ่ม): เงินทั้งหมด W4 · งานแอดมินที่ย้ายไป W4
+   *    (`cancelLeave` · `confirmTimeRequest` · `editStaffAttendance` · OT ของแอดมิน) · และ `confirmOT`
+   *    (ขั้นที่ 2 ของแอดมิน ตีราคา OT เข้าเงินเดือน — อยู่ในรายการ PIN เงิน)
+   * รูปภาพ (ใบลามีไฟล์แนบ · แจ้งบาดเจ็บมีรูป) → โฮสต์ตอบ NOT_ON_FAST_HOST ก่อนบันทึก แล้วแอปส่ง Apps Script เอง */
+  const FAST_WRITES = {
+    // W1 — ไม่มีเงิน ไม่มี LINE
+    addDepartment: 1, removeDepartment: 1, renameDepartment: 1, setLeaveQuota: 1, saveCertText: 1, saveDocInfo: 1,
+    saveDspmCriteria: 1, deleteDspmCriteria: 1, editLeave: 1, editStudentLeave: 1, unlockJournal: 1,
+    addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, addHoliday: 1, editHoliday: 1, removeHoliday: 1,
+    addBigCleaning: 1, removeBigCleaning: 1, recallJournalsMany: 1,
+    addComment: 1, updateGrowth: 1, editGrowth: 1, deleteGrowth: 1, saveVaccines: 1, setAbsenceFollowup: 1,
+    // W2 — ส่ง LINE
+    saveTeacherReply: 1, saveParentComment: 1, studentAbsence: 1, teacherStudentLeave: 1, submitInjury: 1,
+    // W3 — งานประจำวันที่ใกล้เงิน
+    submitLeave: 1, approveLeave: 1, staffCheckin: 1, staffCheckout: 1, parentCheckin: 1, staffStudentCheckin: 1,
+    approveOT: 1, submitTimeRequest: 1, approveTimeRequest: 1, parentEditLeave: 1, parentCancelLeave: 1,
+    editStudentAttendance: 1, holidayAttendAdd: 1
+  };
+  const fastWritesOn = () => CONFIG.FAST_WRITES === true && !!CONFIG.FAST_URL;
+  const fastHas = a => !!FAST_ACTIONS[a] || (fastWritesOn() && !!FAST_WRITES[a]);
 
   const READ_ONLY = {
     // โหมดสาธิต: ถามว่าเปิดอยู่ไหม — อ่านล้วน ต้องตรงกับ READ_ONLY_ACTIONS_ ใน src/Code.gs

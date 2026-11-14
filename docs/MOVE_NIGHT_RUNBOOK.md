@@ -20,7 +20,7 @@
 | ☐ | Supabase ตัวจริง (Pro · สำรองรายวันเปิดแล้ว) · **ล้างสำเนา UAT ออกให้ว่าง** ก่อนคืน D | ผอ. สมัคร · ผมล้าง | D−1 |
 | ☐ | Cloud Run **ตัวจริง** แยกจาก UAT/staging · `min-instances 1` · ชี้ Supabase ตัวจริง · env `LINE_SEND=on` · `ALLOWED_ORIGINS` มีทั้งที่อยู่เดิมและ atomnurseryapp.com · ยัง**ไม่มีใครใช้** (หน้าเว็บยังชี้ GAS) | ผม | D−3 |
 | ☐ | Secret Manager ตัวจริง: `SUPABASE_DB_URL` · `LINE_TOKEN` · `SESSION_SECRET` (**ค่าใหม่** — ใส่จริงในขั้น 5b) | ผอ. | D−1 |
-| ☐ | **รุ่นเว็บของคืน D** เตรียมไว้ใน branch (ยังไม่ push): `FAST_URL` = Cloud Run ตัวจริง · `FAST_ACTIONS` + route งานประจำวัน W1–W3 (เงิน W4 **ยังไม่ใส่**) · มี `d164052` · `test_all` + `release.js` + `build_web.js` ผ่าน | ผม | D−2 (หยุดแก้โค้ด) |
+| ☐ | **รุ่นเว็บของคืน D** เตรียมไว้ใน branch (ยังไม่ push): ใน `webapp/api.js` ตั้ง `FAST_URL` = Cloud Run ตัวจริง และ `FAST_WRITES: true` (= รายการ W1–W3 ชุดเดียวกับที่ UAT ทดสอบ · เงิน W4 + `confirmOT` อยู่ Apps Script) · แก้ข้อทดสอบ "FAST_URL ยังว่าง" ใน test_fast_host/test_fast_forward/test_fast_writes_web ให้เป็นค่าคืน D · มี `d164052` · `test_all` + `release.js` + `build_web.js` ผ่าน | ผม | D−2 (หยุดแก้โค้ด) |
 | ☐ | **รุ่น Apps Script ของคืน D** = commit เดียวกับรุ่นเว็บ (มี `d164052` — ต้องขึ้นพร้อมเว็บ ไม่งั้นแอดมินเจอ PIN_REQUIRED แต่ไม่มีช่องใส่ PIN) | ผม | D−2 |
 | ☐ | ประกาศ ① ③ ④ ใน `docs/ANNOUNCEMENT_DRAFT.md` ส่งแล้ว · แอดมิน/ผอ. ตั้ง PIN แล้ว | ผอ. | D−2 |
 | ☐ | ผอ. ว่างช่วง 20:30–22:00 คืน D (เทียบยอดเงิน + ตั้งค่าลับ) · ผมว่าง 19:30–23:59 และ D+3 เช้า 06:00–09:00 | ผอ. + ผม | — |

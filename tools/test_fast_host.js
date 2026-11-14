@@ -176,12 +176,16 @@ console.log('\n8) การสลับปลายทางฝั่ง client'
 
   /* batch ต้องไปทางเดียวกันทั้งก้อน · ถ้าครึ่งหนึ่งไป Postgres อีกครึ่งไปชีต
    * หน้าจอเดียวจะได้คำตอบจากข้อมูลสองรอบ แล้วไม่มีอะไรบอกว่าอันไหนใหม่กว่า */
-  ok_('🔴 batch ไปทางเดียวกันทั้งก้อน', api.indexOf('calls.every(c => FAST_ACTIONS[') >= 0);
+  /* 2026-11-14: one question for single calls and batches alike — fastHas (reads + W1–W3 writes when the
+   * build switches them on; tools/test_fast_writes_web.js drives the behaviour) */
+  ok_('🔴 batch ไปทางเดียวกันทั้งก้อน', api.indexOf('calls.every(c => fastHas(') >= 0 && api.indexOf('return fastHas(a);') >= 0);
   ok_('batch ว่างไม่ถูกสลับ', api.indexOf('calls.length > 0 &&') >= 0);
 
   /* รายชื่อต้องประกาศ ไม่ใช่เดาจากชื่อ — เหตุผลเดียวกับ READ_ONLY
    * และต้องไม่มีตัวที่เขียนข้อมูลหลุดเข้ามา ตราบใดที่ GAS ยังเขียนชีตอยู่ */
-  const fa = api.slice(api.indexOf('const FAST_ACTIONS = {'), api.indexOf('const READ_ONLY = {'));
+  /* only the READ list — FAST_WRITES (2026-11-14) follows it, has its own switch and its own suite
+   * (tools/test_fast_writes_web.js); this check is about what goes fast in TODAY's build */
+  const fa = api.slice(api.indexOf('const FAST_ACTIONS = {'), api.indexOf('};', api.indexOf('const FAST_ACTIONS = {')));
   const names = [...fa.matchAll(/([a-zA-Z][a-zA-Z0-9]*): 1/g)].map(x => x[1]);
   ok_('มีรายชื่อประกาศไว้จริง (' + names.length + ' ตัว)', names.length >= 20);
 

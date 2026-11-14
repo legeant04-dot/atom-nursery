@@ -12,13 +12,49 @@
  *   - keeps the IIFE structure; only local identifiers and whitespace go.
  *
  * Usage: node tools/build_web.js [outDir]   (default dist_pages/)
+ *
+ * UAT build (2026-11-14 · docs/UAT_CHECKLIST.md):
+ *   node tools/build_web.js --uat --fast <Cloud Run UAT url> --gas <UAT Apps Script /exec url> [outDir]
+ *   (default outDir dist_uat/) — the same app with FAST_URL + GAS_URL of the UAT copy and FAST_WRITES on,
+ *   a separate service-worker cache, and a "UAT" badge so nobody mistakes it for the real app.
+ *   🔴 Refuses the LIVE Apps Script URL, and anything not https Cloud Run / script.google.com.
+ *   webapp/ is never changed — the overrides exist only in the output.
  */
 const fs = require('fs'), path = require('path');
 const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'webapp');
-const OUT = path.resolve(ROOT, process.argv[2] || 'dist_pages');
+const ARGV = process.argv.slice(2);
+const UAT = ARGV.includes('--uat');
+const flag = n => { const i = ARGV.indexOf(n); return i >= 0 ? String(ARGV[i + 1] || '') : ''; };
+const POS = ARGV.filter((a, i) => a.indexOf('--') !== 0 && !['--fast', '--gas'].includes(ARGV[i - 1]));
+const OUT = path.resolve(ROOT, POS[0] || (UAT ? 'dist_uat' : 'dist_pages'));
+const die = m => { console.error('build_web: ' + m); process.exit(1); };
+const UAT_FAST_RE = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.run\.app\/?$/;
+const UAT_GAS_RE = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]{20,}\/exec$/;
+let UAT_FAST = '', UAT_GAS = '';
+if (UAT) {
+  UAT_FAST = flag('--fast'); UAT_GAS = flag('--gas');
+  if (!UAT_FAST_RE.test(UAT_FAST)) die('--uat needs --fast <https://…run.app> (got "' + UAT_FAST + '")');
+  if (!UAT_GAS_RE.test(UAT_GAS)) die('--uat needs --gas <https://script.google.com/macros/s/…/exec> (got "' + UAT_GAS + '")');
+  const live = /GAS_URL: '([^']*)'/.exec(fs.readFileSync(path.join(SRC, 'api.js'), 'utf8'));
+  if (!live) die('cannot find GAS_URL in webapp/api.js');
+  if (live[1] === UAT_GAS) die('🔴 --gas is the LIVE Apps Script — UAT must use its own copy');
+}
+/** the UAT overrides, applied to the OUTPUT only (before minify) — each must match exactly once */
+function uatize(rel, text) {
+  if (!UAT) return text;
+  const once = (t, re, to, what) => { const n = (t.match(re) || []).length; if (n !== 1) die('UAT: ' + what + ' matched ' + n + '×'); return t.replace(re, to); };
+  if (rel === 'api.js') {
+    text = once(text, /window\.CONFIG = \{ FAST_URL: '',/g, "window.CONFIG = { FAST_WRITES: true, FAST_URL: '" + UAT_FAST.replace(/\/$/, '') + "',", 'CONFIG.FAST_URL');
+    return once(text, /GAS_URL: '[^']*'/g, "GAS_URL: '" + UAT_GAS + "'", 'CONFIG.GAS_URL');
+  }
+  if (rel === 'sw.js') return once(text, /atom-v(\d+)/g, 'atom-uat-v$1', 'sw cache name');
+  if (rel === 'index.html') return once(text, /<\/body>/g,
+    '<div style="position:fixed;top:0;left:0;z-index:99999;pointer-events:none;background:#d92d20;color:#fff;font:700 11px/1 sans-serif;padding:4px 8px;border-bottom-right-radius:8px">UAT · ข้อมูลทดสอบ</div></body>', 'index </body>');
+  return text;
+}
 
 function walk(dir, base) {
   base = base || dir; let out = [];
@@ -65,6 +101,7 @@ for (const rel of files) {
     if (src1 !== src0) stamped++;
     raw = Buffer.from(src1, 'utf8');
   }
+  if (UAT && (rel === 'api.js' || rel === 'sw.js' || rel === 'index.html')) raw = Buffer.from(uatize(rel, raw.toString('utf8')), 'utf8');
   if (ext === '.js' || ext === '.css') {
     const res = esbuild.transformSync(raw.toString('utf8'), {
       loader: ext === '.js' ? 'js' : 'css',
@@ -83,5 +120,5 @@ for (const rel of files) {
   }
 }
 const kb = n => (n / 1024).toFixed(1) + ' KB';
-console.log(`dist_pages: ${files.length} files (${min} minified) — ${kb(before)} -> ${kb(after)}`);
+console.log(`${path.basename(OUT)}${UAT ? ' (UAT)' : ''}: ${files.length} files (${min} minified) — ${kb(before)} -> ${kb(after)}`);
 console.log(`version: ${VER} (from APP_VERSION)` + (stamped ? ` — stamped into ${stamped} file(s) that were out of step` : ' — sources already matched'));

@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-11-14 · 🌐 หน้าเว็บรุ่นงานประจำวันสำหรับ UAT (FAST_WRITES)
+
+- **webapp/api.js:** รายการ `FAST_WRITES` 44 ตัว (W1 26 · W2 5 · W3 13) — ส่งไปเส้นเร็วเฉพาะเมื่อ `CONFIG.FAST_WRITES === true` **และ** มี `CONFIG.FAST_URL` ในรุ่นที่ปล่อย · คำถามเดียว `fastHas` ใช้ทั้งคำขอเดี่ยวและ batch
+  - 🔴 รุ่นที่ใช้วันนี้ไม่มี FAST_WRITES → ไม่เปลี่ยนอะไร · เครื่อง pilot (`atom_fast_pilot` ชี้ staging) ไม่เปิดการเขียน — ระบบจริงยังเขียนชีต
+  - **ไม่อยู่ในรายการ:** เงิน W4 ทั้งหมด · งานแอดมินที่ ผอ. ย้ายไป W4 (`cancelLeave` ฯลฯ) · **`confirmOT`** — แผนเดิมจัดไว้ W3 แต่เป็นขั้นแอดมินที่ตีราคา OT เข้าเงินเดือนและอยู่ในรายการ PIN เงิน → อยู่ Apps Script จนกว่า ผอ. เปิดกลุ่มเงิน
+  - PIN เงินบนเส้นเร็ว: gate.js รัน `applyIdentity_` ของ Code.gs ซึ่งเรียก `pinGate_` อยู่แล้ว
+- **tools/build_web.js `--uat --fast <run.app> --gas <exec>`** → `dist_uat/` (gitignored): ใส่ FAST_URL/GAS_URL ของ UAT + FAST_WRITES ในผลลัพธ์เท่านั้น · แคช service worker `atom-uat-v…` · ป้าย "UAT · ข้อมูลทดสอบ" · 🔴 ปฏิเสธ Apps Script ตัวจริง และ URL ที่ไม่ใช่ Cloud Run/script.google.com
+- **พิสูจน์:** `tools/test_fast_writes_web.js` 35 (api.js ตัวจริงใน vm) — รุ่นวันนี้/pilot ไม่ส่งการเขียน · ทุกตัวในรายการเป็น route เขียนของโฮสต์หรือการเขียนเอนจินที่พิสูจน์แล้ว · ไม่มีตัวไหนอยู่ใน MONEY_PROVEN/PIN เงิน · 🔴 โฮสต์ล่ม = ไม่ส่งซ้ำไป Apps Script (ยกเว้นลงเวลาที่ server กันซ้ำเอง) · build ปฏิเสธ URL ผิด
+  - mutation: เปิดสวิตช์ตลอด → พัง 6 · ใส่ `confirmSlip` ในรายการ → พัง 2 · test_all 250 ผ่าน
+- **พบ:** UAT ต้องอยู่คนละ origin กับแอปจริง (localStorage ใช้ร่วมกัน → token สลับกัน) — ลงเช็คลิสต์ UAT แล้ว
+
 ## 2026-11-14 · 📋 ข้อ 4: เช็คลิสต์ UAT · ร่างประกาศ · คู่มือคืนย้าย
 
 - **เอกสารใหม่:** `docs/UAT_CHECKLIST.md` · `docs/ANNOUNCEMENT_DRAFT.md` · `docs/MOVE_NIGHT_RUNBOOK.md` — เขียนแบบอิงคืน D (วันจริงรอ ผอ. 15/11) · ลิงก์จาก ROLLOUT_PLAN
