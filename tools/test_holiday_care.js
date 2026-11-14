@@ -208,8 +208,14 @@ console.log('\n8) on Apps Script — the real route, sheets built the OLD way, a
     _configCache = null; setupAll(); _configCache = null;
     var main = getMainSpreadsheet_(), hr = getHrSpreadsheet_();
     // the OLD header, exactly like the live sheet: no Fee / FeeStatus / ChargeID
-    var ha = main.getSheetByName('HOLIDAY_ATTEND'); if (ha) main.deleteSheet(ha);
-    main.insertSheet('HOLIDAY_ATTEND').appendRow(['Date', 'StudentID', 'AddedBy', 'AddedAt']);
+    // Postgres (ATOM_DB=pg): there is no "old header" — the table was created with Fee/FeeStatus/ChargeID
+    // (001_init.sql), and a table cannot be dropped through the sheet door. Only a Sheets workbook can be
+    // behind; everything below still runs on both.
+    var ha = main.getSheetByName('HOLIDAY_ATTEND');
+    if (!main.__pg) {
+      if (ha) main.deleteSheet(ha);
+      main.insertSheet('HOLIDAY_ATTEND').appendRow(['Date', 'StudentID', 'AddedBy', 'AddedAt']);
+    }
     appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'A1', Name: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE', StartDate: '2020-01-01' });
     appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'T1', Name: 'ครูเอ', Role: 'Teacher', PositionLevel: 'Staff', Status: 'ACTIVE', StartDate: '2020-01-01' });
     appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'T2', Name: 'ครูบี', Role: 'Teacher', PositionLevel: 'Staff', Status: 'ACTIVE', StartDate: '2020-01-01' });
