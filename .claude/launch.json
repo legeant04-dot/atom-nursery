@@ -21,6 +21,16 @@
       "port": 8091
     },
     {
+      "name": "atom-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tools/serve.js",
+        "8093",
+        "dist_mock"
+      ],
+      "port": 8093
+    },
+    {
       "name": "atom-design",
       "runtimeExecutable": "node",
       "runtimeArgs": [
