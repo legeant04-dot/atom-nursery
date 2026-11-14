@@ -23,7 +23,7 @@ delete process.env.ALLOWED_ORIGINS;
 let dbTouched = 0;
 const libPath = require.resolve(path.join(ROOT, 'tools', 'pg_lib.js'));
 require.cache[libPath] = { id: libPath, filename: libPath, loaded: true,
-  exports: { connect: async () => { dbTouched++; return { client: { query: async () => ({ rows: [] }), end: async () => {} }, scrub: s => s }; } } };
+  exports: { acquire: async () => { dbTouched++; return { client: { query: async () => ({ rows: [] }), end: async () => {} }, release() {} }; } } };
 
 const hostPath = path.join(ROOT, 'server', 'host.js');
 const { server } = require(hostPath);

@@ -227,7 +227,7 @@ console.log('\n8b) โฮสต์: คำตอบพก token ใหม่เ�
 (async () => {
   process.env.SESSION_SECRET = SECRET; process.env.TENANT_ID = '00000000-0000-4000-8000-0000000000ae';
   const libPath = require.resolve(path.join(ROOT, 'tools', 'pg_lib.js'));
-  require.cache[libPath] = { id: libPath, filename: libPath, loaded: true, exports: { connect: async () => ({ client: { query: async () => ({ rows: [] }), end: async () => {} }, scrub: s => s }) } };
+  require.cache[libPath] = { id: libPath, filename: libPath, loaded: true, exports: { acquire: async () => ({ client: { query: async () => ({ rows: [] }), end: async () => {} }, release() {} }) } };
   let reads = [];
   PGE.persist = async () => ({});
   PGE.hydrateConfig = async () => ({ Departments: ['Nursery 1'] });

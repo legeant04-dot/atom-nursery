@@ -33,7 +33,7 @@ const fakeClient = {
   end: async () => {}
 };
 const libPath = require.resolve(path.join(ROOT, 'tools', 'pg_lib.js'));
-require.cache[libPath] = { id: libPath, filename: libPath, loaded: true, exports: { connect: async () => ({ client: fakeClient, scrub: s => s }) } };
+require.cache[libPath] = { id: libPath, filename: libPath, loaded: true, exports: { acquire: async () => ({ client: fakeClient, release() {} }) } };
 const PG = require(path.join(ROOT, 'tools', 'pg_engine.js'));
 PG.persist = async () => ({});
 /* the host reads SessionEpochs from the SCHOOL_CONFIG rows hydrateConfig hands back (opts.rows) — one read */

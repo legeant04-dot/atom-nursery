@@ -85,4 +85,82 @@ async function connect() {
   return { client, scrub, env };
 }
 
-module.exports = { connect, parseConn, readEnv };
+/* ── THE SERVER'S POOL (2026-11-14) ───────────────────────────────────────────────────────────────
+ * connect() above is for tools: one client, and a failure ends the process with a message. That is
+ * right for a script and wrong for server/host.js, which used it per request — every request paid a
+ * full TLS + login to Supabase, and one failed connect called process.exit and took the whole
+ * instance (and every request in flight on it) down with it.
+ *
+ * acquire() hands out a client from a pool kept per process. The rules that make reuse safe:
+ *
+ *   🔴 THE SCHOOL'S CLOCK is set once per physical connection, before its first use, and a client
+ *      whose `set time zone` failed is destroyed, never handed out (see connect() for why it matters).
+ *   🔴 A CLIENT GOES BACK ONLY WHEN IT IS CLEAN: release() asks the driver for the transaction status
+ *      and destroys the connection unless it is idle ('I'). A request that died inside begin…commit
+ *      cannot leave a transaction — or the advisory lock it holds — open for the next request.
+ *      The caller also destroys it after any error (release(true)).
+ *   🔴 A CONNECTION THAT SAT IDLE is pinged before use and replaced if dead: Cloud Run throttles the
+ *      CPU between requests, so the pool's own idle timer cannot be trusted to have run.
+ *   Session-level settings beyond the time zone are not allowed on a pooled client — use `set local`
+ *   inside a transaction (host.js does: lock_timeout).
+ *
+ * Size: PG_POOL_MAX (default 4) per instance. Cloud Run max-instances × this must stay under the
+ * Supabase pooler's limit — docs/CLOUD_RUN.md. A request waits up to 15s for a free slot. */
+let POOL_ = null, POOL_SCRUB_ = s => s;
+const POOL_IDLE_PING_MS_ = 30 * 1000;
+const poolMax_ = () => Math.max(1, Math.min(20, Math.floor(Number(process.env.PG_POOL_MAX)) || 4));
+
+function pool_() {
+  if (POOL_) return POOL_;
+  const env = readEnv();
+  const url = env.SUPABASE_DB_URL || '';
+  const cfg = parseConn(url);
+  if (!cfg) throw new Error('อ่าน SUPABASE_DB_URL ไม่ออก');
+  POOL_SCRUB_ = makeScrub(env, url);
+  const { Pool } = require('pg');
+  POOL_ = new Pool(Object.assign({}, cfg, {
+    ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000,
+    max: poolMax_(), idleTimeoutMillis: 5 * 60 * 1000, maxLifetimeSeconds: 30 * 60,
+    allowExitOnIdle: true                               // a tool or test that used the host still exits
+  }));
+  /* an idle connection the server dropped must not crash the process (pg emits 'error' on the pool) */
+  POOL_.on('error', e => { try { console.log('pool: ปิดการเชื่อมต่อที่เสีย — ' + POOL_SCRUB_((e && e.message) || e)); } catch (x) {} });
+  return POOL_;
+}
+
+async function checkout_(pool) {
+  let c;
+  try { c = await pool.connect(); }
+  catch (e) { throw new Error('เชื่อมต่อฐานข้อมูลไม่สำเร็จ: ' + POOL_SCRUB_((e && e.message) || e)); }
+  try {
+    if (!c.__atomTz) { await c.query("set time zone 'Asia/Bangkok'"); c.__atomTz = true; }
+    else if (Date.now() - (c.__atomUsed || 0) > POOL_IDLE_PING_MS_) await c.query('select 1');
+    return c;
+  } catch (e) { try { c.release(true); } catch (x) {} return null; }
+}
+
+/** A pooled client for one request. Returns { client, release(bad) } — call release exactly once. */
+async function acquire() {
+  const pool = pool_();
+  /* every idle one may have died together (a quiet night): each dead one is destroyed, so within
+   * max + 1 tries the pool has opened a fresh connection */
+  let c = null;
+  for (let i = 0; !c && i <= poolMax_(); i++) c = await checkout_(pool);
+  if (!c) throw new Error('เชื่อมต่อฐานข้อมูลไม่สำเร็จ (ตั้งเวลาโรงเรียนไม่ได้)');
+  let done = false;
+  return {
+    client: c,
+    release(bad) {
+      if (done) return; done = true;
+      const st = typeof c.getTransactionStatus === 'function' ? c.getTransactionStatus() : 'I';
+      const clean = !bad && (st === 'I' || st == null);
+      if (clean) c.__atomUsed = Date.now();
+      try { c.release(clean ? undefined : true); } catch (e) {}
+    }
+  };
+}
+
+async function closePool() { const p = POOL_; POOL_ = null; if (p) await p.end(); }
+const poolStats = () => POOL_ ? { total: POOL_.totalCount, idle: POOL_.idleCount, waiting: POOL_.waitingCount, max: poolMax_() } : null;
+
+module.exports = { connect, parseConn, readEnv, acquire, closePool, poolStats };

@@ -29,7 +29,9 @@
 process.env.TZ = 'Asia/Bangkok';
 const http = require('http');
 const path = require('path');
-const { connect } = require(path.join(__dirname, '..', 'tools', 'pg_lib.js'));
+/* 🔌 one pool per instance (2026-11-14) — tools/pg_lib.js acquire(). Never connect() here: that one
+ * opens a fresh TLS login per request and ends the process when the database cannot be reached. */
+const { acquire } = require(path.join(__dirname, '..', 'tools', 'pg_lib.js'));
 const PG = require(path.join(__dirname, '..', 'tools', 'pg_engine.js'));
 const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.js'));
 const { verifySession, parseEpochs, epochOf, SESSION_EPOCH_KEY } = require(path.join(__dirname, 'session.js'));
@@ -123,14 +125,14 @@ const isFrozen = cfg => String((cfg && cfg.WriteFreeze) || '').trim().toLowerCas
  * and cannot fill the log. */
 async function auditClosed_(tenant, list) {
   if (!list || !list.length) return;
-  let c;
+  let c, h, bad = false;
   try {
-    ({ client: c } = await connect());
+    h = await acquire(); c = h.client;
     await PG.applySheetOps(c, tenant, list.map(a => ({ op: 'insert', sheet: 'AUDIT_LOG',
       row: { Timestamp: new Date(), UserID: 'system', Action: 'CLOSED_ROUTE_CALLED', TableName: 'API', RecordID: a } })));
     await PG.bumpCacheVersions(c, tenant, ['AUDIT_LOG']);
-  } catch (e) { try { console.log('AUDIT FAIL (closed route): ' + ((e && e.message) || e)); } catch (x) {} }
-  finally { if (c) { try { await c.end(); } catch (e) {} } }
+  } catch (e) { bad = true; try { console.log('AUDIT FAIL (closed route): ' + ((e && e.message) || e)); } catch (x) {} }
+  finally { if (h) h.release(bad); }
 }
 
 async function handle(req, res, body) {
@@ -169,10 +171,10 @@ async function handle(req, res, body) {
     return reply(res, action, { ok: false, error: { code: 'READ_ONLY', message: GATE.observerMessage() } });
   }
 
-  let client;
+  let client, held, bad = false;
   try {
-    /* 🔴 connect() คืน { client, scrub, env } ไม่ใช่ตัว client ตรง ๆ — ดูประวัติใน git */
-    ({ client } = await connect());
+    /* 🔌 จาก pool — release(bad) ใน finally · ถ้ามีข้อผิดพลาด หรือธุรกรรมยังค้าง การเชื่อมต่อนี้ถูกทิ้ง ไม่คืน pool */
+    held = await acquire(); client = held.client;
     const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);   // วันตามเวลาไทย
 
     /* ── ทำหนึ่งรอบ: โหลด → ด่าน → handler → เทียบว่ามีอะไรเปลี่ยน ─────────────────────────────
@@ -403,9 +405,10 @@ async function handle(req, res, body) {
     }
     return reply(res, action, out);
   } catch (e) {
+    bad = true;
     return reply(res, action, { ok: false, error: { code: 'INTERNAL', message: (e && e.message) || String(e) } });
   } finally {
-    if (client) { try { await client.end(); } catch (e) {} }
+    if (held) held.release(bad);
     if (closedSeen.size) await auditClosed_(tenant, [...closedSeen]);
   }
 }
@@ -446,7 +449,7 @@ module.exports = { server, handle, corsFor, ALLOWED_ORIGINS };
  *      ขยับเวอร์ชันในธุรกรรมเดียวกับการเขียน (src/DbPg.gs CACHE VERSIONS · tools/test_cache_versions.js)
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
  *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
- *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)
+ *   ✅ connection pool (2026-11-14) — tools/pg_lib.js acquire() · คืนเฉพาะการเชื่อมต่อที่สะอาด · ฐานข้อมูลล่มไม่ปิดเครื่องอีก (test_fast_host_pool)
  *   ✅ ล็อก CORS เป็นโดเมนของเราแล้ว (2026-11-13) — ALLOWED_ORIGINS · อื่น = 403 BAD_ORIGIN (test_fast_host_cors)
  *   ✅ บันทึกตรวจสอบ PDPA (2026-11-13): route ที่ย้ายมารันโค้ด Apps Script ตัวจริง — logAudit/logAuditHr ลง
  *      audit_log/hr_audit_log ในธุรกรรมเดียวกับการเขียน (routes.js) · route ที่ยังไม่ย้ายถูกส่งกลับ Apps Script

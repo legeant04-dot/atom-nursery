@@ -32,7 +32,7 @@ process.env.TENANT_ID = '00000000-0000-4000-8000-0000000000ad';
 
 const libPath = require.resolve(path.join(ROOT, 'tools', 'pg_lib.js'));
 require.cache[libPath] = { id: libPath, filename: libPath, loaded: true,
-  exports: { connect: async () => ({ client: { query: async () => ({ rows: [] }), end: async () => {} }, scrub: s => s }) } };
+  exports: { acquire: async () => ({ client: { query: async () => ({ rows: [] }), end: async () => {} }, release() {} }) } };
 const PG = require(path.join(ROOT, 'tools', 'pg_engine.js'));
 let ops = [], bumps = [], opsFail = false;
 PG.applySheetOps = async (c, tenant, list) => { if (opsFail) throw new Error('db down'); ops.push(...list.map(o => Object.assign({ tenant }, o))); return {}; };

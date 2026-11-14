@@ -41,7 +41,7 @@ const fakeClient = {
 };
 const writesIn = () => log.filter(s => /^(insert|update|delete)\b/i.test(s));
 const libPath = require.resolve(path.join(ROOT, 'tools', 'pg_lib.js'));
-require.cache[libPath] = { id: libPath, filename: libPath, loaded: true, exports: { connect: async () => ({ client: fakeClient, scrub: s => s }) } };
+require.cache[libPath] = { id: libPath, filename: libPath, loaded: true, exports: { acquire: async () => ({ client: fakeClient, release() {} }) } };
 
 const PG = require(path.join(ROOT, 'tools', 'pg_engine.js'));
 let persisted = [], hydrations = 0;

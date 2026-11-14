@@ -15,6 +15,7 @@
 | รหัสผ่านฐานข้อมูล | อยู่ใน **Secret Manager** เท่านั้น ไม่อยู่ใน image ไม่อยู่ใน repo ไม่อยู่ในแชท |
 | SESSION_SECRET | ช่วงทดสอบใช้ **ค่าใหม่ที่สุ่มขึ้นมาเอง** ไม่ใช่ค่าจริงของ Apps Script — token จริงจึงใช้กับโฮสต์นี้ไม่ได้เลย จะเปลี่ยนเป็นค่าจริงในวันย้าย |
 | เรียกจากเบราว์เซอร์ | เฉพาะหน้าเว็บของแอป (2026-11-13): `https://legeant04-dot.github.io` · `https://atomnurseryapp.com` · `https://www.atomnurseryapp.com` — เว็บอื่นได้ 403 `BAD_ORIGIN` · ตั้ง env `ALLOWED_ORIGINS` (คั่นด้วย ,) เพื่อแทนรายการนี้ เช่นหน้า UAT · `tools/test_fast_host_cors.js` |
+| การเชื่อมต่อฐานข้อมูล | (2026-11-14) ใช้ **pool ต่อเครื่อง** (`tools/pg_lib.js` `acquire`) แทนการเปิดใหม่ทุกคำขอ — วัดจากเครื่องในกรุงเทพฯ ถึง staging: เปิดใหม่ ~375ms → จาก pool ~36ms · ตั้ง env `PG_POOL_MAX` (ค่าเริ่มต้น 4 · 1–20) · 🔴 `max-instances` × `PG_POOL_MAX` ต้องไม่เกินขีดของ Supabase pooler (โหมด session พอร์ต 5432) และต้องเหลือที่ให้ Apps Script/เครื่องมือ — ตอนนี้ 3 × 4 = 12 · ฐานข้อมูลล่มตอบ `INTERNAL` ไม่ปิดเครื่องอีก · `tools/test_fast_host_pool.js` |
 | อัปโหลด | `.gcloudignore` เป็น whitelist — `secrets/` ลายเซ็น ภาพใบประกาศ ฟอนต์ ไม่มีทางขึ้นไป |
 
 ---
