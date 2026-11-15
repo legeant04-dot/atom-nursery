@@ -1147,7 +1147,7 @@
       if(rk==='journal'&&sid){ if(role==='Admin') return ()=>A_viewJournal(sid,date);
         if(role==='Parent') return ()=>{ if(window.P_showJ)P_showJ(sid,date); else GO('journal'); };
         // staff: show the report that was sent (the viewer offers an edit button when it is today)
-        return ()=>{ if(window.A_viewJournal) A_viewJournal(sid,date); else if(window.T_journal) T_journal(sid); else GO('class'); }; }
+        return /^[0-9]+$/.test(sid) ? ()=>GO('class') : ()=>{ if(window.T_journal) T_journal(sid,date); else if(window.A_viewJournal) A_viewJournal(sid,date); else GO('class'); }; }
       // an emergency carries the report id, so the notification opens the report the teacher filed
       // rather than dropping the admin on the dashboard with nothing to read
       if(rk==='injury'&&sid) return ()=>{ if(window.A_viewInjury) A_viewInjury(sid); else GO('home'); };
@@ -5786,6 +5786,7 @@
     const p_holNext = api('myHolidayOTNext',{staffId:USER.staffId}).catch(()=>null);
     const p_holDay  = api('holidayAttendList',{}).catch(()=>null);
     const p_missOut = api('staffMissingCheckout',{staffId:USER.staffId}).catch(()=>null);
+    const p_jfix = api('journalDraftsPending',{staffId:USER.staffId}).catch(()=>null);
     /* A CLASS THAT APPEARS ON SOMEBODY'S SCREEN WITHOUT EXPLANATION IS ALARMING. Cover ADDS a class
      * to this teacher's list; if nobody tells them why, the first they know of it is a roomful of
      * children they were not expecting. */
@@ -5914,6 +5915,7 @@
       <div id="tcover"></div>
       <div id="tholday"></div>
       <div id="tmissout"></div>
+      <div id="tjfix"></div>
       <div class="card"><button class="btn sm outline block" onclick="GO('leave')">📩 ${EN()?'Leave — file or view':'ยื่น/ดูใบลา'}</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">${ic('repeat')} ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:var(--sp-2)"></div></div>`:''}
       <div class="card"><div id="tabswatch"></div><div class="row"><button class="btn sm outline" onclick="GO('absence')">${ic('search')} ${esc(t('abs.title'))}</button>
@@ -6036,6 +6038,17 @@
             ? `${w.watch} child(ren) to follow up${w.ge5?` · ${w.ge5} away over 5 days`:''}`
             : `ต้องติดตาม ${w.watch} คน${w.ge5?` · ขาดเกิน 5 วัน ${w.ge5} คน`:''}`}</div>`
         : '');
+    }).catch(()=>{});
+    /* 🔓 past reports that are drafts again (unlocked by the admin, recalled, or never sent) — the family
+     * cannot see them until they are sent, so they sit on the home screen until they are (ผอ. 2026-11-15) */
+    p_jfix.then(rows=>{
+      rows=Array.isArray(rows)?rows:[];
+      if(!rows.length){ setHTML('#tjfix',''); return; }
+      setHTML('#tjfix', `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)">
+        <b style="color:var(--warn)">🔓 ${EN()?`${rows.length} past report(s) to correct and send`:`บันทึกย้อนหลังรอแก้ไขและส่ง ${rows.length} รายการ`}</b>
+        <small class="muted" style="display:block;margin:var(--sp-1) 0">${EN()?'The family cannot see these until they are sent again.':'ผู้ปกครองยังไม่เห็นบันทึกเหล่านี้ จนกว่าจะส่งอีกครั้ง'}</small>
+        ${rows.slice(0,12).map(r=>`<button class="btn sm outline block" style="margin-top:var(--sp-1);text-align:left" onclick="T_journal('${esc(r.studentId)}','${esc(r.date)}')">${ic('edit')} ${esc(r.nick)} · ${esc(ddmmyyyy(r.date))}${r.class?` · ${esc(r.class)}`:''}</button>`).join('')}
+        ${rows.length>12?`<small class="muted">${EN()?`and ${rows.length-12} more`:`และอีก ${rows.length-12} รายการ`}</small>`:''}</div>`);
     }).catch(()=>{});
     p_missOut.then(mo=>{
       if(!mo||!mo.count){ setHTML('#tmissout',''); return; }
@@ -6377,7 +6390,10 @@
      * teacher does precisely BECAUSE they are looking at an earlier day.
      */
     if(onDay){
-      const jPast = done
+      const jPast = (done && jIsDraft(done))
+        ? B('', `T_journal('${s.StudentID}','${esc(onDay)}')`, ic('edit'), EN()?'Correct':'แก้ไข',
+            (EN()?'Correct and send the report of ':'แก้ไขและส่งบันทึกของวันที่ ')+ddmmyyyy(onDay)+' — '+dispNick(s))
+        : done
         ? B('outline', `A_viewJournal('${s.StudentID}','${esc(onDay)}')`, '👁️', EN()?'Read':'ดูบันทึก',
             (EN()?'The report for ':'บันทึกของวันที่ ')+ddmmyyyy(onDay)+' — '+dispNick(s))
         : B('outline', '', '📒', EN()?'No report':'ไม่มีบันทึก',
@@ -6908,9 +6924,16 @@
   // an Admin reaches this form from A_journals, where the student is outside their own class
   const J_isAdmin = () => USER.role==='Admin';
   window.J_exit = () => { if(J_isAdmin()){ GO('manage'); setTimeout(()=>A_journals(),120); } else GO('class'); };
-  window.T_journal = async (sid) => { if(!J_isAdmin()) setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
+  /* 🔴 A DAY OTHER THAN TODAY (ผอ. 2026-11-15). The form used to hold today only, so a report the admin
+   * unlocked for an earlier day (น้องธันวา, 12/11) could be read but never corrected — every way in
+   * opened the read-only view. `date` names the day; a past day opens the form only while its entry is a
+   * DRAFT (unlocked, recalled, or never sent) and the save goes back to that same day. A sent entry
+   * stays read-only, and a past day with nothing written is not started from here. */
+  let J_DATE='';
+  window.T_journal = async (sid, date) => { const today=todayStr(); const day=(date&&ymd(date)<today)?ymd(date):'';
+    J_DATE=day; if(!J_isAdmin()) setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
     // role lets the engine hand a DRAFT to staff (a parent gets null until it is submitted)
-    const [cl,j,food]=await Promise.all([api('classList',tc()),api('getJournal',{studentId:sid,role:USER.role}),
+    const [cl,j,food]=await Promise.all([api('classList',tc()),api('getJournal',day?{studentId:sid,date:day,role:USER.role}:{studentId:sid,role:USER.role}),
       api('foodItems',{}).catch(()=>[]),
       FOOD_PICS()]);   // the read-only view below renders journalChecklist, which draws the thumbnails
     JFOOD=food||[];
@@ -6919,7 +6942,7 @@
     // which meals this class records (the baby class records none; Nursery 1 also eats dinner here),
     // and what the kitchen planned for today — used to pre-fill an empty slot
     JPLAN={};
-    try{ const ms=await api('mealSlots',{className:s.Class||'',date:todayStr()});
+    try{ const ms=await api('mealSlots',{className:s.Class||'',date:day||todayStr()});
       JSLOTS=ms.slots||JSLOTS; JPLAN=ms.planned||{}; }catch(e){}
     const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
     /* What is already ON the entry, remembered for the save. A teacher who edits a draft without
@@ -6928,13 +6951,14 @@
     J_PHOTOS_CUR = jv.photos.slice();
 
     // once submitted the entry is final — show it read-only rather than a form that cannot save
+    if(day && !j){ toast(t('jr.noneForDay')); J_DATE=''; return; }
     if(j && !draft){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="J_exit()">${t('c.back')}</button>
       <h2 class="page">📒 ${esc(nm(s))}</h2>
       <div class="card" style="background:var(--ok-bg);color:var(--ok);font-size:var(--fs-1)">🔒 ${esc(t('jr.locked'))}${sent?` · ${esc(t('jr.sent'))} ${esc(sent)}`:''}</div>
       ${journalChecklist(j)}`; window.scrollTo(0,0); return; }
 
     const seg=(group,arr,multi)=>arr.map(v=>`<button type="button" data-g="${esc(group)}" data-v="${esc(v)}" onclick="J_pick('${group}','${v.replace(/'/g,"\\'")}',this,${multi})">${esc(jt(v))}</button>`).join('');
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="J_exit()">${t('c.back')}</button><h2 class="page">${draft?'✏️':'📒'} ${esc(draft?t('jr.edit'):t('lbl.record'))} — ${esc(nm(s))}</h2><div class="card">
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="J_exit()">${t('c.back')}</button><h2 class="page">${draft?'✏️':'📒'} ${esc(draft?t('jr.edit'):t('lbl.record'))} — ${esc(nm(s))}</h2>${day?`<div class="card" style="background:var(--warn-bg);color:var(--warn);font-size:var(--fs-1)">📅 ${EN()?'Correcting the report of':'กำลังแก้ไขบันทึกของวันที่'} <b>${esc(ddmmyyyy(day))}</b> — ${EN()?'send it again when done; the family sees it once it is sent.':'แก้เสร็จแล้วกดส่งอีกครั้ง ผู้ปกครองจะเห็นหลังจากส่ง'}</div>`:''}<div class="card">
       <div style="background:var(--warn-bg);border-radius:8px;padding:var(--sp-2);color:var(--warn);font-size:var(--fs-1);margin-bottom:var(--sp-2)">📝 ${esc(t('jr.draftHint'))}</div>
       <div class="jsec"><h4>😊 ${esc(jt('Mood'))} *</h4><div class="choice" id="g_Mood">${Object.keys(MOODS).map(m=>`<button type="button" data-g="Mood" data-v="${esc(m)}" onclick="J_pick('Mood','${m}',this,false)">${MOODS[m]} ${esc(jt(m))}</button>`).join('')}</div></div>
       <div class="jsec"><h4>❤️ ${esc(jt('Health'))}</h4><div class="choice">${seg('Health',HEALTHS,false)}</div>
@@ -7113,7 +7137,7 @@
     // a newly picked photo wins; otherwise KEEP what is already on the entry (photoVal is '' for a
     // slot nobody touched, and sending that would delete the picture)
     const ph=[0,1,2].map(i=>photoVal(document,'jPh'+(i+1)) || J_PHOTOS_CUR[i] || '');
-    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,MilkTimes:milkTimes,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value,Photo1:ph[0],Photo2:ph[1],Photo3:ph[2]});
+    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,...(J_DATE?{date:J_DATE}:{}),Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,MilkTimes:milkTimes,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value,Photo1:ph[0],Photo2:ph[1],Photo3:ph[2]});
       confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); J_exit(); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
@@ -14266,9 +14290,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   // reopening the entry form (which only ever holds today).
   window.A_viewJournal=async(sid,day)=>{ const [j]=await Promise.all([api('getJournal',{studentId:sid,date:day,role:USER.role}),FOOD_PICS()]);
     if(!j){ toast(t('jr.noneForDay')); return; }
-    const canEdit=(day===todayStr()) && (USER.role==='Admin' || !!USER.staffId);
+    const isToday=day===todayStr();
+    const canEdit=(isToday || jIsDraft(j)) && (USER.role==='Admin' || !!USER.staffId);
     modal(`<h3>📒 ${esc(day)}</h3>${journalChecklist(j)}
-      ${canEdit?`<button class="btn block" onclick="this.closest('.modal').remove();T_journal('${esc(sid)}')">${ic('edit')} ${EN()?'Edit today’s report':'แก้ไขบันทึกของวันนี้'}</button>`:''}
+      ${canEdit?`<button class="btn block" onclick="this.closest('.modal').remove();T_journal('${esc(sid)}','${esc(day)}')">${ic('edit')} ${isToday?(EN()?'Edit today’s report':'แก้ไขบันทึกของวันนี้'):(EN()?'Correct and send again':'แก้ไขและส่งอีกครั้ง')}</button>`:''}
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   // a child's recent reports, for staff. Tap a day to read it exactly as Admin would.
   window.T_journalHistory=async(sid)=>{ let st=(A_CACHE.students||[]).find(x=>x.StudentID===sid);
@@ -14287,8 +14312,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ await api('unlockJournal',{studentId:sid,date:day}); const m=document.querySelector('.modal'); if(m)m.remove();
       toast(t('jr.unlocked')); A_journals(day); }catch(e){err(e);} };
   // an unlocked (DRAFT) report opens in the same form the teacher uses; only today's is editable
-  window.A_editJournal=(sid,day)=>{ if(day!==todayStr()){ toast(EN()?'Only today’s report can be edited':'แก้ไขได้เฉพาะบันทึกของวันนี้'); return; }
-    const m=document.querySelector('.modal'); if(m)m.remove(); T_journal(sid); };
+  window.A_editJournal=(sid,day)=>{ const m=document.querySelector('.modal'); if(m)m.remove(); T_journal(sid, day); };
 
   // ---- departments (Nursery) add / rename / remove ----
   window.A_departments=async()=>{
@@ -18390,7 +18414,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           ${stat('green',all.length-openN,EN()?'Followed up':'ติดตามแล้ว')}</div>
         <p class="muted" style="font-size:var(--fs-1);margin:var(--sp-2) 0 0">${USER.role==='Admin'||USER.role==='Observer'
           ? (EN()?'Whole school.':'ทั้งโรงเรียน')
-          : (EN()?'Your classes only.':'เฉพาะชั้นเรียนที่คุณดูแล')} ${EN()?'Counted as away: no-shows plus filed leave.':'นับรวม: วันที่ขาด + วันที่แจ้งลา'}</p>
+          : (EN()?'Your classes only.':'เฉพาะชั้นเรียนที่คุณดูแล')} ${EN()?'Counted as away: no-shows plus filed leave since the child last checked in — a child who comes back drops off this list.':'นับรวม: วันที่ขาด + วันที่แจ้งลา นับตั้งแต่เช็คอินครั้งล่าสุด — มาเรียนแล้วชื่อจะออกจากรายการเอง'}</p>
         ${(USER.role==='Admin'||USER.role==='Observer')?`<button class="btn sm outline block" style="margin-top:var(--sp-2)" onclick="A_absTrail('')">📒 ${EN()?'Full follow-up log':'ประวัติการติดตามทั้งหมด'}</button>`:''}</div>
       <div class="card" style="background:var(--blue-bg)"><div class="spread"><b>${esc(t('abs.rated'))}</b><b>${rate.rated}/${rate.total}</b></div><small class="muted">${esc(t('abs.rateNote').replace('{n}',rate.excludeDays).replace('{x}',rate.excluded))}</small></div>
       <div class="card" style="border:1px solid var(--bad-line)"><h3>🚨 ${EN()?'Absent over 5 days':'ขาดเกิน 5 วัน'} <small class="muted">(${g2.length})</small></h3>${g2.length?g2.map(row).join(''):`${empty('done', EN()?'No child absent over 5 days':'ไม่มีเด็กขาดเกิน 5 วัน')}`}</div>

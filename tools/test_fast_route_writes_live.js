@@ -195,7 +195,7 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
     ok_('วันหยุด: เพิ่ม 05/12 (ครึ่งวัน 12:00-17:00) · ลบ 31/12', pg.HOLIDAYS.map(r => r.Date + ':' + r.StartTime + '-' + r.EndTime).join('|') === '2026-12-05:12:00-17:00');
     ok_('Big Cleaning: เหลือ 18/12 วันเดียว', String(cfg.BigCleaningDays || '') === '2026-12-18');
     ok_('หัวหน้าครูส่งบันทึก 06/11 กลับ 2 ใบ → เป็นร่าง + กล่องแจ้งเตือนครูเจ้าของ 2 ข้อความ', pg.DAILY_JOURNAL.filter(r => r.Date === '2026-11-06').every(r => r.Status === 'DRAFT')
-      && pg.ADMIN_INBOX.map(r => r.StaffID).sort().join() === 'STF-T,STF-U');
+      && pg.ADMIN_INBOX.filter(r => !/^journal[|]STD-/.test(String(r.Ref))).map(r => r.StaffID).sort().join() === 'STF-T,STF-U');
 
     console.log('\n3) 🔴 ด่าน');
     {

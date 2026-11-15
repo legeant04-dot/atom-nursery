@@ -4554,6 +4554,26 @@ function createAtomAPI(M, GROWTH_STD) {
           nick: st.Nickname || st.NameTH || sid });
       });
       return out; },
+    /**
+     * 🔓 PAST REPORTS WAITING FOR THE TEACHER (ผอ. 2026-11-15). An unlocked (or recalled, or never
+     * sent) report for an earlier day is a DRAFT the family cannot see until somebody sends it again —
+     * and nothing on the teacher's screen said so. This lists them for the teacher's home card:
+     * drafts dated before today, within `days` (default 30), for the children this person covers
+     * (a head teacher, a Leader and an Admin get the school — the same scope as absenceReport).
+     * Read-only; the content is not sent, only who and which day.
+     */
+    journalDraftsPending: p => { p=p||{}; if(!p.staffId) return [];   // staff only — a family session carries no staffId
+      const today=todayLocal(); const back=Math.max(1,Math.min(120,Number(p.days)||30));
+      const d0=new Date(today+'T00:00:00'); d0.setDate(d0.getDate()-back);
+      const from=d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0');
+      const me=p.staffId?staffById(p.staffId):null;
+      const whole=!me || adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
+      const mine=whole?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
+      const act={}; activeStudents().forEach(s=>{ if(whole || mine.indexOf(s.Class)>=0) act[s.StudentID]=s; });
+      return (M.journals||[]).filter(x=>{ const d=ymd(x.Date); return act[x.StudentID] && d<today && d>=from && jStatus_(x)!=='SUBMITTED'; })
+        .map(x=>{ const s=act[x.StudentID]; return {studentId:x.StudentID, date:ymd(x.Date), nick:s.Nickname||s.NameTH||x.StudentID,
+          class:s.Class||'', teacherId:String(x.TeacherID||''), updatedAt:x.UpdatedAt||''}; })
+        .sort((a,b)=>a.date.localeCompare(b.date)||String(a.nick).localeCompare(String(b.nick),'th')); },
     // admin-only (ADMIN_ONLY guard on GAS): reopen a submitted entry for correction. It returns to
     // DRAFT, so it also leaves the parent's view until a teacher submits it again.
     unlockJournal: p => { const date=p.date||todayLocal();
@@ -7337,7 +7357,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * daily digest ask for, so nothing that worked before changes. */
     absenceReport: p => { const min=p.minDays||2;
       const byStu={};
-      const add=(sid,date,reason)=>{ if(!sid)return; const d=ymd(date); if(!d)return; const b=byStu[sid]=byStu[sid]||{dates:{},reasons:{}}; b.dates[d]=1; if(reason)b.reasons[String(reason)]=1; };
+      const add=(sid,date,reason)=>{ if(!sid)return; const d=ymd(date); if(!d)return; const b=byStu[sid]=byStu[sid]||{dates:{},reasons:{}}; b.dates[d]=1; if(reason)(b.reasons[d]=b.reasons[d]||{})[String(reason)]=1; };
       (M.absenceLog||[]).forEach(a=>add(a.StudentID,a.Date,a.Reason));
       (M.studentLeaves||[]).forEach(l=>add(l.StudentID,l.Date,l.Reason||l.Type));
       const lastIn=sid=>{ const ins=(M.studentCheckins||[]).filter(c=>c.StudentID===sid&&c.InTime).map(c=>ymd(c.Date)).sort(); return ins.length?ins[ins.length-1]:''; };
@@ -7345,10 +7365,21 @@ function createAtomAPI(M, GROWTH_STD) {
       const whole=!me || adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
       const mine=whole?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
       const logs=M.absenceFollowupLogs||[];
+      /* 🔴 ONLY THE CURRENT RUN OF ABSENCE (ผอ. 2026-11-15). This counted every day away since the
+       * school started using the app, so a child who was ill for three days in August was still on
+       * the list in November and the number only ever grew. Now: the days away AFTER the child's
+       * last check-in at school, up to today. A child who comes back drops off the list; if they are
+       * away again, the count starts again from the new absence. A leave filed for next week is not
+       * an absence yet. The follow-up status belongs to the run it was written for — one set before
+       * this run began is not shown as this run's status (the trail keeps every entry).
+       * ratedChildCount (the teacher's pay) has its own monthly count and is not touched. */
+      const today=todayLocal();
       return activeStudents().filter(s=>whole || mine.indexOf(s.Class)>=0)
-        .map(s=>{ const b=byStu[s.StudentID]||{dates:{},reasons:{}}; const dates=Object.keys(b.dates).sort(); const count=dates.length;
-          const fu=M.absenceFollowups.find(f=>f.StudentID===s.StudentID)||{};
-          const lastAbs=dates[dates.length-1]||''; const li=lastIn(s.StudentID); const returned=(li&&lastAbs&&li>lastAbs)?li:'';
+        .map(s=>{ const b=byStu[s.StudentID]||{dates:{},reasons:{}}; const li=lastIn(s.StudentID);
+          const dates=Object.keys(b.dates).filter(d=>d<=today && (!li || d>li)).sort(); const count=dates.length;
+          const fu0=M.absenceFollowups.find(f=>f.StudentID===s.StudentID)||{};
+          const fu=(dates[0] && ymd(fu0.Date) && ymd(fu0.Date)<dates[0]) ? {} : fu0;
+          const lastAbs=dates[dates.length-1]||''; const returned='';
           // the trail for THIS child, newest first — who chased them, when, and what was attached.
           // `_i` breaks a tie: two follow-ups in the same MINUTE are not unusual (a note, then the
           // certificate that arrived with it), and Date+Time alone leaves their order to chance.
@@ -7356,13 +7387,14 @@ function createAtomAPI(M, GROWTH_STD) {
           const tr=logs.map((l,i)=>({l,i})).filter(x=>String(x.l.StudentID)===String(s.StudentID))
             .sort((a,b2)=>String(b2.l.Date+(b2.l.Time||'')).localeCompare(String(a.l.Date+(a.l.Time||''))) || (b2.i-a.i))
             .map(x=>x.l);
+          const trCur=tr.filter(l=>!dates[0] || ymd(l.Date)>=dates[0]);   // this run's follow-ups; the trail keeps them all
           return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,class:s.Class,count,
             group:(count>5?'over5':'range'), firstDate:dates[0]||'', lastDate:lastAbs, returnedDate:returned,
-            reasons:Object.keys(b.reasons).join(', '),
+            reasons:Object.keys(dates.reduce((o,d)=>Object.assign(o,b.reasons[d]||{}),{})).join(', '),
             note:fu.Note||'',status:fu.Status||'',followDate:fu.Date||'',
             // the LAST person who did something about this child, and how many times anyone has
-            followBy:(tr[0]&&(tr[0].ByName||tr[0].ByStaffID))||'', followCount:tr.length,
-            docs:tr.filter(l=>l.Photo).length,
+            followBy:(trCur[0]&&(trCur[0].ByName||trCur[0].ByStaffID))||'', followCount:trCur.length,
+            docs:trCur.filter(l=>l.Photo).length,
             trail:tr.map(l=>({date:ymd(l.Date),time:l.Time||'',by:l.ByName||l.ByStaffID||'',
                               status:l.Status||'',note:l.Note||'',photo:l.Photo||''}))}; })
         .filter(x=>x.count>=min).sort((a,b)=>b.count-a.count); },

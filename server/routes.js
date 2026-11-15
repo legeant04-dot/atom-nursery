@@ -94,7 +94,8 @@ const PORTED = {
   // a child's leave, corrected by the office (src/Parent.gs)
   editStudentLeave: { fn: 'handleEditStudentLeave', reads: ['LEAVE_REQUEST_STD'], writes: { LEAVE_REQUEST_STD: ['Date', 'Reason', 'Type'] } },
   // a sent daily report back to draft (src/Journal.gs) — content untouched, only the two status cells
-  unlockJournal: { fn: 'handleUnlockJournal', reads: ['DAILY_JOURNAL', 'STUDENTS'], writes: { DAILY_JOURNAL: ['Status', 'SubmittedAt'] } },
+  /* + one 🔔 row for the teacher who wrote the report (ผอ. 2026-11-15) */
+  unlockJournal: { fn: 'handleUnlockJournal', reads: ['DAILY_JOURNAL', 'STUDENTS', 'ADMIN_INBOX'], writes: { DAILY_JOURNAL: ['Status', 'SubmittedAt'] }, appends: ['ADMIN_INBOX'] },
   // announcements (src/Announce.gs) — one WITH an image is refused here (Drive) and goes to Apps Script
   addAnnouncement:    { fn: 'handleAddAnnouncement', reads: ['ANNOUNCEMENTS'], appends: ['ANNOUNCEMENTS'] },
   editAnnouncement:   { fn: 'handleEditAnnouncement', reads: ['ANNOUNCEMENTS'],

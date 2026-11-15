@@ -177,7 +177,8 @@ eq('ประกาศ: ใหม่ ANN-2 เหลืออยู่ ANN1 ถ�
 eq('บันทึกตรวจสอบ: MAIN 5 แถว (โควตา · ใบประกาศ · ใบเสร็จ · ดึงบันทึก · ดึงบันทึกหลายใบ) · HR 3 แถว (แก้ลา ×2 · ยกเลิก)', [db.AUDIT_LOG.length, db.HR_AUDIT_LOG.length], [5, 3]);
 eq('Big Cleaning: เพิ่มสองวัน ลบหนึ่ง', Object.fromEntries(db.SCHOOL_CONFIG.map(r => [r.Key, r.Value])).BigCleaningDays, '2026-12-18');
 eq('หัวหน้าครูดึงกลับ: สองใบที่ส่งแล้วกลับเป็นร่าง ร่างเดิมไม่แตะ', db.DAILY_JOURNAL.filter(r => r.Date === '2026-11-06').map(r => r.StudentID + ':' + r.Status), ['STD-1:DRAFT', 'STD-2:DRAFT', 'STD-3:DRAFT']);
-eq('🔔 กระดิ่งของครูผู้เขียนทั้งสองคน (ไม่ใช่ LINE)', db.ADMIN_INBOX.map(r => r.StaffID + ':' + r.Category).sort(), ['STF-T:journal', 'STF-U:journal']);
+eq('🔔 กระดิ่งของครูผู้เขียนทั้งสองคน (ไม่ใช่ LINE)', db.ADMIN_INBOX.filter(r => !/^journal[|]STD-/.test(String(r.Ref))).map(r => r.StaffID + ':' + r.Category).sort(), ['STF-T:journal', 'STF-U:journal']);
+eq('🔓 ปลดบันทึก → กระดิ่งของครูผู้เขียน 1 ข้อความ ชี้ไปที่เด็กและวันนั้น (ผอ. 2026-11-15)', db.ADMIN_INBOX.filter(r => /^journal[|]STD-/.test(String(r.Ref))).map(r => r.Category + '|' + r.Ref), ['journal|journal|STD-1|2026-11-05']);
 eq('...ของ HR ไปตาราง HR ไม่ปนกับ MAIN', db.HR_AUDIT_LOG.map(r => r.Action), ['LEAVE_EDIT', 'LEAVE_EDIT', 'LEAVE_CANCEL']);
 
 console.log('\n3) 🔴 กฎที่ทำให้เขียนนอก Apps Script ได้อย่างปลอดภัย');
