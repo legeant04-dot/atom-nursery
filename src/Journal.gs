@@ -383,7 +383,21 @@ function handleUnlockJournal(payload) {
    * longer matches the sheet she just wrote to — the one place a stale cache is actually visible. */
   if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); cacheDel_('jrn:' + String(date).slice(0, 10)); }
   logAudit(payload.staffId || payload.uid || 'ADMIN', 'JOURNAL_UNLOCK', 'DAILY_JOURNAL', student.StudentID + '@' + date);
-  return { studentId: student.StudentID, date: date, status: 'DRAFT' };
+  /* 🔔 TELL THE TEACHER WHO WROTE IT (ผอ. 2026-11-15). An unlocked report that nobody is told about
+   * is a report that quietly disappears from the family's view and never comes back — which is what
+   * happened to น้องธันวา's 12/11. The ref names the child AND the day, so the bell opens that day's
+   * form directly (notifTarget → T_journal(sid, date)). The bell only, never LINE — same as recall. */
+  var notified = 0, who = String(row.TeacherID || '');
+  if (who) {
+    try {
+      inboxAdd_('journal',
+        '🔓 แอดมินปลดบันทึกของ ' + (student.Nickname || student.Name || student.StudentID) + ' วันที่ ' + date +
+        ' ให้แก้ไข · กรุณาแก้ไขแล้วส่งให้ผู้ปกครองอีกครั้ง',
+        'journal|' + student.StudentID + '|' + date, who);
+      notified = 1;
+    } catch (e) {}
+  }
+  return { studentId: student.StudentID, date: date, status: 'DRAFT', notified: notified };
 }
 
 /**
