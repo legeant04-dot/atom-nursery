@@ -94,7 +94,8 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     // twelve since v285 (prepaidStudents — its NAME starts with "prepay"; staffMissingCheckout, the
     // eleventh, contains "Checkout"). Pinned deliberately: every entry here has been read against
     // its handler, and the count is what makes an unchecked addition impossible to slip in.
-    eq('the list is exactly the sixteen that were checked', names.length, 16);
+    // seventeen (2026-11-15): journalDraftsPending — filter + map over M.journals, writes nothing
+    eq('the list is exactly the seventeen that were checked', names.length, 17);
     /* 🔴 THREE OF THEM DO NOT LIVE IN THE ENGINE, and that is why they are named here rather than
      * quietly exempted. exportManifest / exportTable (src/Portability.gs), onboardingCheck
      * (src/Onboarding.gs) and demoStatus (src/Demo.gs) are explicit ROUTES — the engine-body check below cannot find them, and a

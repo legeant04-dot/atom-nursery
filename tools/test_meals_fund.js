@@ -157,7 +157,7 @@ console.log('\n4) The monthly menu fills the journal in');
     H.mealSlots({ className:'Nursery 1', date:'2026-08-10' }).planned.Snack, 'ขนมปัง');
 }
 {
-  ok_('the journal asks for the plan when it opens', /api\('mealSlots',\{className:s\.Class\|\|'',date:todayStr\(\)\}\)/.test(app));
+  ok_('the journal asks for the plan when it opens', /api\('mealSlots',\{className:s\.Class\|\|'',date:(day\|\|)?todayStr\(\)\}\)/.test(app));
   // a teacher's own entry must win — the menu is a starting point, not an override
   ok_('what the teacher wrote takes precedence over the plan', /const chosen = k => items\[k\] \|\| JPLAN\[k\] \|\| ''/.test(app));
   ok_('a pre-filled slot says where it came from', /จากเมนูประจำเดือน/.test(app));
