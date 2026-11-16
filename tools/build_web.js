@@ -14,10 +14,12 @@
  * Usage: node tools/build_web.js [outDir]   (default dist_pages/)
  *
  * UAT build (2026-11-14 · docs/UAT_CHECKLIST.md):
- *   node tools/build_web.js --uat --fast <Cloud Run UAT url> --gas <UAT Apps Script /exec url> [outDir]
+ *   node tools/build_web.js --uat --fast <Cloud Run UAT url> --gas <UAT Apps Script /exec url> --liff <UAT LIFF id> [outDir]
  *   (default outDir dist_uat/) — the same app with FAST_URL + GAS_URL of the UAT copy and FAST_WRITES on,
  *   a separate service-worker cache, and a "UAT" badge so nobody mistakes it for the real app.
  *   🔴 Refuses the LIVE Apps Script URL, and anything not https Cloud Run / script.google.com.
+ *   🔴 --liff is REQUIRED (2026-11-16): without it the UAT page kept the live LIFF, whose endpoint is the LIVE
+ *      site — signing in with LINE on UAT would have landed testers in the real app. The live id is refused.
  *   webapp/ is never changed — the overrides exist only in the output.
  */
 const fs = require('fs'), path = require('path');
@@ -28,12 +30,13 @@ const SRC = path.join(ROOT, 'webapp');
 const ARGV = process.argv.slice(2);
 const UAT = ARGV.includes('--uat');
 const flag = n => { const i = ARGV.indexOf(n); return i >= 0 ? String(ARGV[i + 1] || '') : ''; };
-const POS = ARGV.filter((a, i) => a.indexOf('--') !== 0 && !['--fast', '--gas'].includes(ARGV[i - 1]));
+const POS = ARGV.filter((a, i) => a.indexOf('--') !== 0 && !['--fast', '--gas', '--liff'].includes(ARGV[i - 1]));
 const OUT = path.resolve(ROOT, POS[0] || (UAT ? 'dist_uat' : 'dist_pages'));
 const die = m => { console.error('build_web: ' + m); process.exit(1); };
 const UAT_FAST_RE = /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.run\.app\/?$/;
 const UAT_GAS_RE = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]{20,}\/exec$/;
-let UAT_FAST = '', UAT_GAS = '';
+const UAT_LIFF_RE = /^[0-9]{10}-[A-Za-z0-9]{8}$/;
+let UAT_FAST = '', UAT_GAS = '', UAT_LIFF = '';
 if (UAT) {
   UAT_FAST = flag('--fast'); UAT_GAS = flag('--gas');
   if (!UAT_FAST_RE.test(UAT_FAST)) die('--uat needs --fast <https://…run.app> (got "' + UAT_FAST + '")');
@@ -41,6 +44,10 @@ if (UAT) {
   const live = /GAS_URL: '([^']*)'/.exec(fs.readFileSync(path.join(SRC, 'api.js'), 'utf8'));
   if (!live) die('cannot find GAS_URL in webapp/api.js');
   if (live[1] === UAT_GAS) die('🔴 --gas is the LIVE Apps Script — UAT must use its own copy');
+  UAT_LIFF = flag('--liff');
+  if (!UAT_LIFF_RE.test(UAT_LIFF)) die('--uat needs --liff <UAT LIFF id, e.g. 1234567890-AbCdEfGh> (got "' + UAT_LIFF + '")');
+  const liveLiff = /LIFF_ID: '([^']*)'/.exec(fs.readFileSync(path.join(SRC, 'api.js'), 'utf8'));
+  if (liveLiff && liveLiff[1] === UAT_LIFF) die('🔴 --liff is the LIVE LIFF — its endpoint is the real app; UAT needs its own');
 }
 /** the UAT overrides, applied to the OUTPUT only (before minify) — each must match exactly once */
 function uatize(rel, text) {
@@ -48,6 +55,7 @@ function uatize(rel, text) {
   const once = (t, re, to, what) => { const n = (t.match(re) || []).length; if (n !== 1) die('UAT: ' + what + ' matched ' + n + '×'); return t.replace(re, to); };
   if (rel === 'api.js') {
     text = once(text, /window\.CONFIG = \{ FAST_URL: '',/g, "window.CONFIG = { FAST_WRITES: true, FAST_URL: '" + UAT_FAST.replace(/\/$/, '') + "',", 'CONFIG.FAST_URL');
+    text = once(text, /LIFF_ID: '[^']*'/g, "LIFF_ID: '" + UAT_LIFF + "'", 'CONFIG.LIFF_ID');
     return once(text, /GAS_URL: '[^']*'/g, "GAS_URL: '" + UAT_GAS + "'", 'CONFIG.GAS_URL');
   }
   if (rel === 'sw.js') return once(text, /atom-v(\d+)/g, 'atom-uat-v$1', 'sw cache name');

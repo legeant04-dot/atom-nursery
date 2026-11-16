@@ -17,6 +17,14 @@
 - หน้าเว็บ UAT: Cloud Run `atom-uat-web` → https://atom-uat-web-120486339414.asia-southeast1.run.app (ตอนนี้เป็นหน้ารอ · `min-instances 0`)
 - Apps Script UAT: โปรเจกต์ "Atom Nursery UAT" scriptId `1CkgyYvvuiifdTxbTBbFpjbMhHqCrYEmOgetNqvRQwYF1_jaZfg5m7B2_` · deployment `AKfycbyZLcCasfkWNb7JpeJAD_lhN5MTg3p2WkJqZE7GzBaPh9tx5pKyjzqvmxnPFFbR4peh` (โค้ด branch `golive` · Script Properties ต่อ atom-prod แล้ว 16 พ.ย. — handlePgProbe ผ่าน · ยังไม่ได้ตั้ง DB_BACKEND)
 - LIFF ทดสอบ: `2010457597-RoqhGdPK` (Channel LINE Login เดิม · Endpoint = หน้าเว็บ UAT · 16 พ.ย.)
+- Apps Script UAT รันโค้ด golive แล้ว (16 พ.ย. `f07b250` · deployment @2 · `ping` ตอบ) · 🔒 **สำเนานี้ไม่มี `WB_MAIN_ID`/`WB_HR_ID`** — เปิดชีตจริงไม่ได้เลย (ตรวจแล้ว: `Workbook id not set`) · อ่านข้อมูลได้เมื่อตั้ง `DB_BACKEND=pg` หลังย้ายข้อมูลเท่านั้น
+- **build หน้าเว็บ UAT** (เตรียมแล้ว 16 พ.ย. — ยังไม่ deploy จนกว่าข้อมูลจะเข้า atom-prod):
+  ```bash
+  node tools/build_web.js --uat --fast https://atom-fast-uat-120486339414.asia-southeast1.run.app --gas https://script.google.com/macros/s/AKfycbyZLcCasfkWNb7JpeJAD_lhN5MTg3p2WkJqZE7GzBaPh9tx5pKyjzqvmxnPFFbR4peh/exec --liff 2010457597-RoqhGdPK
+  ```
+  → `dist_uat/` (ไม่ commit) · 🔴 `--liff` บังคับ: ถ้าไม่ใส่ หน้า UAT จะใช้ LIFF ตัวจริงซึ่ง endpoint คือแอปจริง — ล็อกอิน LINE บน UAT จะพาผู้ทดสอบเข้าแอปจริง · ปฏิเสธ LIFF/Apps Script ตัวจริงเอง
+  · deploy: คัดลอก `uat_web/Dockerfile` `uat_web/nginx.conf` และ `dist_uat/` ไปโฟลเดอร์ชั่วคราวเดียวกัน แล้ว `gcloud run deploy atom-uat-web --source <โฟลเดอร์นั้น> --region asia-southeast1`
+  · ปุ่ม Google บน UAT จะใช้ไม่ได้ (ที่อยู่ UAT ไม่ได้ลงทะเบียนใน OAuth client) — ผู้ทดสอบใช้ LINE
 - โฮสต์เร็ว UAT: Cloud Run `atom-fast-uat` → https://atom-fast-uat-120486339414.asia-southeast1.run.app (16 พ.ย. · secrets uat-supabase-db-url / uat-session-secret / line-token · `LINE_SEND=allow` + `LINE_ALLOW` ว่าง = ไม่ส่งใคร · ALLOWED_ORIGINS = หน้าเว็บ UAT เท่านั้น · `TENANT_ID` ยังว่าง — ใส่หลังย้ายข้อมูล)
 
 | | งาน | ใคร | ตรวจยังไง |

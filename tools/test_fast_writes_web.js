@@ -190,10 +190,12 @@ console.log('\n9) build_web --uat: สวิตช์อยู่ในผลล
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'atom-uat-'));
   const run = args => cp.spawnSync(process.execPath, [path.join(ROOT, 'tools', 'build_web.js')].concat(args), { encoding: 'utf8' });
   const uatGas = 'https://script.google.com/macros/s/AKfycbUATuatUATuat0123456789/exec';
-  const r = run(['--uat', '--fast', UATHOST, '--gas', uatGas, path.join(tmp, 'u')]);
+  const UL = '1234567890-UaTuAtUa';   // a UAT LIFF id (required since 2026-11-16)
+  const r = run(['--uat', '--fast', UATHOST, '--gas', uatGas, '--liff', UL, path.join(tmp, 'u')]);
   eq('สร้างรุ่น UAT สำเร็จ', r.status, 0);
   const ua = fs.readFileSync(path.join(tmp, 'u', 'api.js'), 'utf8');
   ok_('ผลลัพธ์: FAST_WRITES เปิด · FAST_URL/GAS_URL ของ UAT', /FAST_WRITES:!0/.test(ua) && ua.includes('FAST_URL:"' + UATHOST + '"') && ua.includes('GAS_URL:"' + uatGas + '"'));
+  ok_('🔴 LIFF ของ UAT แทนของจริง (ไม่งั้นล็อกอิน LINE บน UAT พาไปแอปจริง)', ua.includes('LIFF_ID:"' + UL + '"') && !ua.includes('LIFF_ID:"' + /LIFF_ID: '([^']*)'/.exec(API)[1] + '"'));
   ok_('แคช service worker แยกจากของจริง', /atom-uat-v\d+/.test(fs.readFileSync(path.join(tmp, 'u', 'sw.js'), 'utf8')));
   ok_('มีป้าย UAT บนหน้าจอ', fs.readFileSync(path.join(tmp, 'u', 'index.html'), 'utf8').includes('UAT · ข้อมูลทดสอบ'));
   const n = run([path.join(tmp, 'n')]);
@@ -201,9 +203,11 @@ console.log('\n9) build_web --uat: สวิตช์อยู่ในผลล
   ok_('รุ่นปกติ: ไม่มี FAST_WRITES · FAST_URL ว่าง', n.status === 0 && !/FAST_WRITES:!0/.test(na) && /FAST_URL:""/.test(na));
   eq('webapp/api.js ไม่ถูกแก้', fs.readFileSync(path.join(ROOT, 'webapp', 'api.js'), 'utf8'), API);
   const live = /GAS_URL: '([^']*)'/.exec(API)[1];
-  eq('🔴 ปฏิเสธ Apps Script ตัวจริง', run(['--uat', '--fast', UATHOST, '--gas', live, path.join(tmp, 'x')]).status, 1);
-  eq('🔴 ปฏิเสธ URL ที่ไม่ใช่ Cloud Run', run(['--uat', '--fast', 'https://evil.example.com', '--gas', uatGas, path.join(tmp, 'y')]).status, 1);
-  eq('🔴 ปฏิเสธ URL หน้าตาคล้าย', run(['--uat', '--fast', 'https://x.run.app.evil.com', '--gas', uatGas, path.join(tmp, 'z')]).status, 1);
+  eq('🔴 ปฏิเสธ Apps Script ตัวจริง', run(['--uat', '--fast', UATHOST, '--gas', live, '--liff', UL, path.join(tmp, 'x')]).status, 1);
+  eq('🔴 ไม่มี --liff → ปฏิเสธ', run(['--uat', '--fast', UATHOST, '--gas', uatGas, path.join(tmp, 'l1')]).status, 1);
+  eq('🔴 ปฏิเสธ LIFF ตัวจริง', run(['--uat', '--fast', UATHOST, '--gas', uatGas, '--liff', /LIFF_ID: '([^']*)'/.exec(API)[1], path.join(tmp, 'l2')]).status, 1);
+  eq('🔴 ปฏิเสธ URL ที่ไม่ใช่ Cloud Run', run(['--uat', '--fast', 'https://evil.example.com', '--gas', uatGas, '--liff', UL, path.join(tmp, 'y')]).status, 1);
+  eq('🔴 ปฏิเสธ URL หน้าตาคล้าย', run(['--uat', '--fast', 'https://x.run.app.evil.com', '--gas', uatGas, '--liff', UL, path.join(tmp, 'z')]).status, 1);
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
