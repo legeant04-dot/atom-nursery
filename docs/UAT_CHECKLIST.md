@@ -17,7 +17,7 @@
 - หน้าเว็บ UAT: Cloud Run `atom-uat-web` → https://atom-uat-web-120486339414.asia-southeast1.run.app (ตอนนี้เป็นหน้ารอ · `min-instances 0`)
 - Apps Script UAT: โปรเจกต์ "Atom Nursery UAT" scriptId `1CkgyYvvuiifdTxbTBbFpjbMhHqCrYEmOgetNqvRQwYF1_jaZfg5m7B2_` · deployment `AKfycbyZLcCasfkWNb7JpeJAD_lhN5MTg3p2WkJqZE7GzBaPh9tx5pKyjzqvmxnPFFbR4peh` (โค้ด branch `golive` · Script Properties ต่อ atom-prod แล้ว 16 พ.ย. — handlePgProbe ผ่าน · ยังไม่ได้ตั้ง DB_BACKEND)
 - LIFF ทดสอบ: `2010457597-RoqhGdPK` (Channel LINE Login เดิม · Endpoint = หน้าเว็บ UAT · 16 พ.ย.)
-- ยังไม่มี: โฮสต์เร็วของ UAT (`atom-fast-uat`) — สร้างหลังใส่รหัสลับ
+- โฮสต์เร็ว UAT: Cloud Run `atom-fast-uat` → https://atom-fast-uat-120486339414.asia-southeast1.run.app (16 พ.ย. · secrets uat-supabase-db-url / uat-session-secret / line-token · `LINE_SEND=allow` + `LINE_ALLOW` ว่าง = ไม่ส่งใคร · ALLOWED_ORIGINS = หน้าเว็บ UAT เท่านั้น · `TENANT_ID` ยังว่าง — ใส่หลังย้ายข้อมูล)
 
 | | งาน | ใคร | ตรวจยังไง |
 |---|---|---|---|
