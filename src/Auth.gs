@@ -867,9 +867,12 @@ function handleChangePassword(payload) {
 
   // First-time accounts (MUST_CHANGE) may set a password without the old one.
   if (String(user.Status) !== USER_STATUS.MUST_CHANGE) {
+    pwLockCheck_('user', user.UserID);                       // Password.gs — 5 wrong = 15 minutes
     if (!verifyPassword_(payload.oldPassword || '', user.PasswordHash)) {
+      if (!pwLockFail_('user', user.UserID)) pwLockCheck_('user', user.UserID);
       throw apiError_('BAD_PASSWORD', 'รหัสผ่านเดิมไม่ถูกต้อง');
     }
+    pwLockClear_('user', user.UserID);
   }
   updateRow_(users, user._row, {
     PasswordHash: hashPassword_(payload.newPassword),

@@ -225,7 +225,9 @@ var PERF_EXPECTED_ = {
   LINE_UID_TAKEN: 1,
   // a slip this school has already taken money against, offered for something else — the reuse
   // check refusing, which is the point of storing the bank reference at all
-  SLIP_ALREADY_USED: 1
+  SLIP_ALREADY_USED: 1,
+  // a password check locked after 5 wrong tries (Password.gs) — the guard working, like PIN_LOCKED
+  PW_LOCKED: 1
 };
 
 /**

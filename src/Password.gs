@@ -24,12 +24,56 @@ function handleChangeStaffPassword(p) {
   return { ok: true };
 }
 
-// slip-unlock check (staffId injected = self)
+
+/* ── 🔒 A PASSWORD CHECK CANNOT BE GUESSED FOREVER (2026-11-16) ─────────────────────────────────────
+ * Signing in is LINE / Google only, so nothing on the open internet takes a password. Two routes still
+ * compare one, both behind a session: the salary-slip unlock (checkStaffPassword) and the old-password
+ * check of changePassword. Neither counted mistakes — anybody holding a signed-in phone could try
+ * passwords until the slip opened. Same rule as the money PIN (Pin.gs): 5 wrong in a row locks that
+ * account's check for 15 minutes. The count lives in Script Properties, server-side and durable, so a
+ * new tab or a second phone does not reset it (CacheService would: it may evict at any moment).
+ * Cleared by the next correct answer. The lock itself is audited and tells the admins' bell. */
+var PW_MAX_FAILS_ = 5;
+var PW_LOCK_MS_ = 15 * 60 * 1000;
+function pwLockKey_(scope, id) { return 'PWFAIL_' + scope + '_' + String(id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60); }
+function pwLockState_(scope, id) {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(pwLockKey_(scope, id)) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+/** Throws PW_LOCKED while the lock holds. */
+function pwLockCheck_(scope, id) {
+  var st = pwLockState_(scope, id), left = Number(st.until || 0) - Date.now();
+  if (left > 0) throw apiError_('PW_LOCKED', 'ใส่รหัสผ่านผิดหลายครั้ง — ลองใหม่ในอีก ' + Math.ceil(left / 60000) + ' นาที หรือให้แอดมินรีเซ็ตรหัสผ่านให้');
+}
+/** One more wrong answer. Returns how many tries are left (0 = now locked). */
+function pwLockFail_(scope, id) {
+  var sp = PropertiesService.getScriptProperties(), k = pwLockKey_(scope, id);
+  var st = pwLockState_(scope, id);
+  if (Number(st.until || 0) && Number(st.until) <= Date.now()) st = {};     // an old lock that ran out
+  var n = Number(st.n || 0) + 1;
+  if (n >= PW_MAX_FAILS_) {
+    sp.setProperty(k, JSON.stringify({ n: 0, until: Date.now() + PW_LOCK_MS_ }));
+    try { logAudit(String(id), 'PW_LOCKED', scope, String(id)); } catch (e) {}
+    try { inboxAdd_('security', '🔒 ใส่รหัสผ่านผิด ' + PW_MAX_FAILS_ + ' ครั้งติดกัน (' + id + ') — ล็อก 15 นาที', ''); } catch (e) {}
+    return 0;
+  }
+  sp.setProperty(k, JSON.stringify({ n: n }));
+  return PW_MAX_FAILS_ - n;
+}
+function pwLockClear_(scope, id) {
+  try { PropertiesService.getScriptProperties().deleteProperty(pwLockKey_(scope, id)); } catch (e) {}
+}
+
+// slip-unlock check (staffId injected = self) — 5 wrong in a row locks it for 15 minutes
 function handleCheckStaffPassword(p) {
   p = p || {};
+  pwLockCheck_('slip', p.staffId);
   var r = pwStaffRow_(p.staffId);
   var pw = r.st ? String(r.st.PasswordHash || '1234') : '1234';
-  return { ok: pw === String(p.password || '') };
+  if (pw === String(p.password || '')) { pwLockClear_('slip', p.staffId); return { ok: true }; }
+  var left = pwLockFail_('slip', p.staffId);
+  if (!left) pwLockCheck_('slip', p.staffId);     // this wrong answer was the fifth: say so now
+  return { ok: false, left: left };
 }
 
 // Admin views a staff's current password (plain text by design)

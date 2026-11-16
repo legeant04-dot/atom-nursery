@@ -1242,6 +1242,8 @@ create table if not exists payment_slips (
   "send_bank"                  text,
   "stated_date"                date,
   "stated_time"                time,
+  "file_hash"                  text,
+  "slip_amount"                numeric(12,2),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

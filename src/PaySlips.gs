@@ -12,7 +12,7 @@ function paySlipsSheet_() {
   var sh = ss.getSheetByName('PAYMENT_SLIPS');
   if (!sh) {
     sh = ss.insertSheet('PAYMENT_SLIPS');
-    sh.appendRow(['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status']);
+    sh.appendRow(['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'FileHash', 'SlipAmount']);
   }
   return sh;
 }
@@ -124,7 +124,9 @@ function paySlipByRef_(ref) {
   var r = String(ref || '').trim();
   if (!r) return null;
   return findObject_(paySlipsSheet_(), function (s) {
-    return String(s.TransRef || '').trim() === r && String(s.Status || '') !== 'REJECTED';
+    // a cash/manual record keeps the admin's NOTE in TransRef — never a bank reference (2026-11-16)
+    return String(s.TransRef || '').trim() === r && String(s.Status || '') !== 'REJECTED'
+      && String(s.Verified || '') !== 'MANUAL' && String(s.Method || '') !== 'cash';
   });
 }
 /** Human label for a payable, so a refusal can say WHAT the slip was already used for. */
@@ -149,6 +151,97 @@ function paySlipDupCheck_(vr, kind, refId) {
   return { reuse: prev };
 }
 
+/* ── 🔴 THREE LAYERS AGAINST ONE SLIP PAYING TWICE (ผอ. 16 Nov 2026 — ships with the move) ─────────
+ *
+ * paySlipDupCheck_ above only ever looked at the bank's reference, and only when SlipOK itself said
+ * 1012. Two holes were left:
+ *   · SlipOK down / out of quota / unreadable photo → no ref at all → no check at all. The same
+ *     screenshot could be attached to every bill in the house and each would land as SUBMITTED.
+ *   · a ref we already hold, on a slip SlipOK objected to for another reason (1013 amount, 1014
+ *     receiver) → never compared.
+ *
+ *   ① TransRef     — the bank's own id for one transfer. When BOTH sides have one it is final, in
+ *                    both directions: same ref = same transfer; different refs = different transfers.
+ *   ② FileHash     — SHA-256 of the image bytes. Identical bytes are the identical file. Checked
+ *                    BEFORE SlipOK is asked, so a duplicate spends no quota and leaves no Drive file.
+ *   ③ the transfer — amount + transfer date + minute + sender bank, all read off the slip by SlipOK.
+ *                    Used ONLY when a ref is missing on one side: two real transfers of the same
+ *                    amount in the same minute (twins' bills from one phone) carry different refs,
+ *                    and ① has already said they are different.
+ *
+ * A row the admin REJECTED never blocks (the family may need to send it again), and neither does a
+ * cash/manual record (its TransRef column holds the admin's note, not a bank reference).
+ * The answer has the same shapes as before — same payable = a re-submit (hand back the record),
+ * another payable = SLIP_ALREADY_USED, nothing = new. */
+function paySlipB64_(p) {
+  if (!p || !p.slipData) return '';
+  var s = String(p.slipData); return s.indexOf(',') >= 0 ? s.split(',')[1] : s;
+}
+function paySlipHash_(b64) {
+  if (!b64) return '';
+  try {
+    var d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.base64Decode(b64));
+    return d.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
+  } catch (e) { return ''; }
+}
+function paySlipLiveRows_() {
+  return readObjects_(paySlipsSheet_()).filter(function (s) {
+    return String(s.Status || '') !== 'REJECTED' && String(s.Verified || '') !== 'MANUAL' && String(s.Method || '') !== 'cash';
+  });
+}
+/** What one transfer paid in total — a combined payment spreads one transfer over several rows. */
+function paySlipRowTotal_(rows, r) {
+  if (r.SlipAmount !== '' && r.SlipAmount != null && Number(r.SlipAmount) > 0) return Number(r.SlipAmount);
+  var g = String(r.SlipGroup || '');
+  if (!g) return Number(r.Amount || 0);
+  return rows.filter(function (x) { return String(x.SlipGroup || '') === g; })
+    .reduce(function (a, x) { return a + Number(x.Amount || 0); }, 0);
+}
+function paySlipYmd_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, (typeof ssTz_ === 'function') ? ssTz_() : tz_(), 'yyyy-MM-dd');
+  return paySlipTransDate_(v);
+}
+/**
+ * The earlier slip this one IS, or null. { row, by: 'ref' | 'file' | 'data' }
+ *   vr: paySlipVerify_'s result (may be empty — SlipOK unreachable) · hash: paySlipHash_ · amount: the
+ *   transfer's amount (SlipOK's reading when it has one, else what the family typed).
+ */
+function paySlipFindSame_(vr, hash, amount, rows) {
+  rows = rows || paySlipLiveRows_();
+  var ref = String((vr && vr.ref) || '').trim(), hit;
+  if (ref) {
+    hit = rows.filter(function (s) { return String(s.TransRef || '').trim() === ref; })[0];
+    if (hit) return { row: hit, by: 'ref' };
+  }
+  if (hash) {
+    hit = rows.filter(function (s) { return String(s.FileHash || '') === hash; })[0];
+    if (hit) return { row: hit, by: 'file' };
+  }
+  var d = vr && vr.transDate, t = vr && vr.transTime, bank = String((vr && vr.sendBank) || '').trim().toLowerCase();
+  var amt = Math.round(Number(amount || 0) * 100) / 100;
+  if (d && t && bank && amt > 0) {
+    hit = rows.filter(function (s) {
+      if (ref && String(s.TransRef || '').trim()) return false;          // both have refs → ① decided
+      return paySlipYmd_(s.TransDate) === d
+        && toHHmm_(s.TransTime) === t
+        && String(s.SendBank || '').trim().toLowerCase() === bank
+        && Math.abs(paySlipRowTotal_(rows, s) - amt) < 0.5;
+    })[0];
+    if (hit) return { row: hit, by: 'data' };
+  }
+  return null;
+}
+function paySlipUsedError_(found, ref) {
+  var what = paySlipRefLabel_(found.row.RefKind, found.row.RefID);
+  if (found.by === 'file') return apiError_('SLIP_ALREADY_USED',
+    'ไฟล์สลิปนี้เคยแนบชำระ ' + what + ' ไปแล้ว — กรุณาแนบสลิปของการโอนครั้งนี้');
+  if (found.by === 'data') return apiError_('SLIP_ALREADY_USED',
+    'สลิปนี้มียอดเงิน วันเวลาที่โอน และธนาคารตรงกับสลิปที่เคยใช้ชำระ ' + what + ' ทุกอย่าง — ' +
+    'ถ้าเป็นการโอนคนละครั้งจริง กรุณาติดต่อโรงเรียนเพื่อบันทึกให้');
+  return apiError_('SLIP_ALREADY_USED',
+    'สลิปใบนี้เคยใช้ชำระ ' + what + ' ไปแล้ว (เลขอ้างอิง ' + String(ref || '-') + ') — กรุณาแนบสลิปของการโอนครั้งนี้');
+}
+
 function paySlipRecord_(kind, refId, p) {
   var tgt = paySlipTarget_(kind, refId);
   if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบรายการ');
@@ -171,14 +264,15 @@ function paySlipRecord_(kind, refId, p) {
     throw apiError_('NO_PERMISSION', 'รายการนี้ไม่ใช่ของบุตรหลานท่าน');
   }
   var amt = Number(p.slipAmount || 0);
-  var drive = { url: '', fileId: '' };
-  if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg')); }
-  var vr = paySlipVerify_(p, tgt.due);
-  /* "ส่งซ้ำ" decided against OUR records, not SlipOK's memory — see paySlipDupCheck_. */
-  var dup = paySlipDupCheck_(vr, kind, refId);
-  if (dup && dup.reuse) throw apiError_('SLIP_ALREADY_USED',
-    'สลิปใบนี้เคยใช้ชำระ ' + paySlipRefLabel_(dup.reuse.RefKind, dup.reuse.RefID) + ' ไปแล้ว (เลขอ้างอิง ' +
-    String(vr.ref || '-') + ') — กรุณาแนบสลิปของการโอนครั้งนี้');
+  var b64 = paySlipB64_(p), hash = paySlipHash_(b64);
+  var isMine = function (r) { return String(r.RefKind) === String(kind) && String(r.RefID) === String(refId); };
+  /* ② the same FILE — answered before SlipOK is asked or Drive is written (see paySlipFindSame_) */
+  var found = hash ? paySlipFindSame_({}, hash, 0) : null;
+  var vr = found ? { verified: String(found.row.Verified || ''), ref: String(found.row.TransRef || '') } : paySlipVerify_(p, tgt.due);
+  /* ① ref, ③ the transfer — decided against OUR records, not SlipOK's memory */
+  if (!found) found = paySlipFindSame_(vr, hash, Number(vr.slipAmount) > 0 ? Number(vr.slipAmount) : amt);
+  if (found && !isMine(found.row)) throw paySlipUsedError_(found, vr.ref);
+  var dup = found ? { same: found.row } : paySlipDupCheck_(vr, kind, refId);
   if (dup && dup.same) {
     // the same slip, for the same thing, again: the first one worked. Say so instead of failing —
     // the parent is almost always pressing again because the first reply never came back.
@@ -192,9 +286,11 @@ function paySlipRecord_(kind, refId, p) {
     // SlipOK has it, we do not. Take it, and leave the admin a reason rather than a bare code.
     vr.verified = 'NO:1012_NEW';
   }
+  var drive = { url: '', fileId: '' };
+  if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg'));
   var slipId = 'SL-' + Date.now();
   var sh0 = paySlipsSheet_();
-  ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method', 'StatedDate', 'StatedTime', 'SendBank']);
+  ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method', 'StatedDate', 'StatedTime', 'SendBank', 'FileHash', 'SlipAmount']);
   // When the slip cannot be read, all the school could see was when the FILE was attached — which is
   // not when the money moved. The parent states it, and we keep BOTH: the verified time still wins,
   // and the stated one is clearly marked as the family's own word rather than a bank fact.
@@ -203,7 +299,7 @@ function paySlipRecord_(kind, refId, p) {
     Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver,
     // the moment the money actually MOVED, read off the slip — not the moment the file was attached
     TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '', SendBank: vr.sendBank || '',
-    StatedDate: statedDate, StatedTime: statedTime,
+    StatedDate: statedDate, StatedTime: statedTime, FileHash: hash, SlipAmount: (Number(vr.slipAmount) > 0 ? Number(vr.slipAmount) : ''),
     Method: 'transfer', SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
   recCacheBust_('PAYMENT_SLIPS');
   var submitted = paySlipSum_(kind, refId, ['SUBMITTED', 'CONFIRMED']);
@@ -269,10 +365,23 @@ function handlePayCombined(p) {
   var amt = Math.round(Number(p.slipAmount || 0));
   if (Math.abs(amt - total) > 0.5) throw apiError_('AMOUNT_MISMATCH', 'ยอดชำระ ฿' + amt + ' ไม่ตรงกับยอดรวมในระบบ ฿' + total);
 
-  // upload the slip image ONCE, verify it ONCE against the full total
-  var drive = { url: '', fileId: '' };
-  if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-combined.jpg')); }
-  var vr = paySlipVerify_(p, total);
+  // verify it ONCE against the full total — after ② the same-file check, and before Drive
+  var b64 = paySlipB64_(p), hash = paySlipHash_(b64);
+  var found = hash ? paySlipFindSame_({}, hash, 0) : null;
+  var vr = found ? { verified: String(found.row.Verified || ''), ref: String(found.row.TransRef || '') } : paySlipVerify_(p, total);
+  if (!found) found = paySlipFindSame_(vr, hash, Number(vr.slipAmount) > 0 ? Number(vr.slipAmount) : total);
+  if (found) {
+    /* a re-submit only when it is the SAME SET of items. "Any item matches" (the rule before
+     * 2026-11-16) let a slip that paid BIL-3 alone come back as BIL-3 + BIL-4 and be answered
+     * "already received" — while BIL-4 was left looking paid by nobody, and the family told it was. */
+    var key = function (k, id) { return String(k) + '|' + String(id); };
+    var g0 = String(found.row.SlipGroup || '');
+    var prevSet = (g0 ? paySlipLiveRows_().filter(function (r) { return String(r.SlipGroup || '') === g0; }) : [found.row])
+      .map(function (r) { return key(r.RefKind, r.RefID); }).sort().join(',');
+    var mine0 = prevSet === items.map(function (x) { return key(x.kind, x.id); }).sort().join(',');
+    if (!mine0) throw paySlipUsedError_(found, vr.ref);
+    return { ok: true, groupId: String(found.row.SlipGroup || ''), total: total, count: items.length, alreadySubmitted: true };
+  }
   /* THE SAME RULE AS THE SINGLE-ITEM PATH, and it has to be here too or one slip would be refused on
    * one screen and accepted on the other. A combined payment writes one row PER ITEM, all sharing
    * this slip's ref — so "we already hold this ref" is checked against the FIRST of them, and a
@@ -287,9 +396,11 @@ function handlePayCombined(p) {
     return { ok: true, groupId: String(prev.SlipGroup || ''), total: total, count: items.length, alreadySubmitted: true };
   }
   if (String(vr.verified || '').indexOf('NO:1012') === 0) vr.verified = 'NO:1012_NEW';
+  var drive = { url: '', fileId: '' };
+  if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-combined.jpg'));
   var groupId = 'SG-' + Date.now();
   var sh = paySlipsSheet_();
-  ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime', 'Sender', 'SendBank']);
+  ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime', 'Sender', 'SendBank', 'FileHash', 'SlipAmount']);
   // what the parent said about when they transferred — the same fields as a single-item slip
   var statedDate = paySlipTransDate_(p.statedDate), statedTime = paySlipTransTime_(p.statedTime);
   var names = [];
@@ -297,7 +408,7 @@ function handlePayCombined(p) {
   items.forEach(function (x, i) {
     appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: x.kind, RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
       Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '', SendBank: vr.sendBank || '',
-      StatedDate: statedDate, StatedTime: statedTime,
+      StatedDate: statedDate, StatedTime: statedTime, FileHash: hash, SlipAmount: (Number(vr.slipAmount) > 0 ? Number(vr.slipAmount) : ''),
       SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
     var submitted = paySlipSum_(x.kind, x.id, ['SUBMITTED', 'CONFIRMED']);
     updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: vr.transDate || nowStr_() });

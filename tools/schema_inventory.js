@@ -209,6 +209,8 @@ const NOT_MONEY = new Set([
   'EnableChildRate',
   /* ใบเสร็จ (2026-11-03): two DATES on a bill and the BANK CODE a slip came from ('004') — none is an amount */
   'IssuedDate', 'ReceiptDate', 'SendBank', 'StatedDate', 'StatedTime',
+  // PAYMENT_SLIPS.FileHash (2026-11-16) — SHA-256 of the slip image, the duplicate guard's ② · hex text
+  'FileHash',
   'PaidDate', 'PaymentMethod', 'GeneratedBy', 'GeneratedDate', 'PaidBy', 'PayType', 'PayrollID',
   'PrepayID', 'ChargeID', 'PauseSalaryMode', 'ContributionLocked', 'MilkTotal', 'Water',
   /* 🔴 InsuranceSum: MONEY → NOT_MONEY (Phase 2.3, 2026-10-13). It is not an amount this school

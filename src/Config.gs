@@ -272,7 +272,7 @@ SCHEMA[WB.MAIN] = {
   // Method: 'transfer' (a slip) or 'cash' (recorded at the desk by an Admin, no image)
   // TransDate/TransTime = when the money actually moved (read off the slip by SlipOK); SubmittedDate
   // = when the file was attached. Method: 'transfer' (a slip) or 'cash' (recorded by an Admin).
-  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method', 'SendBank', 'StatedDate', 'StatedTime'],
+  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method', 'SendBank', 'StatedDate', 'StatedTime', 'FileHash', 'SlipAmount'],
   /* One row per DAY, always — a leave that spans 21-23 is three rows, not one row with a range.
    * Every reader (register, calendar, absence follow-up, monthly report) asks "is this child on
    * leave on THIS date", so a span would have to be taught to all of them and any one that was

@@ -213,7 +213,10 @@ console.log('\n2) 🔴 รายชื่อ shadow ที่เป็นกา�
    * (the engine decides the list, the bills and the lock) and only then notifies each family on parent.bill.
    * tools/test_holiday_care.js pins both halves. */
   eq('จำนวน shadow ทั้งหมด', shadows.length, 143);
-  eq('🔴 ...ที่เป็นการอ่านล้วน (ไม่มีเหตุผลเชิงกลไก)', readOnly.length, 17);
+  /* 17 → 16 (2026-11-16): checkStaffPassword left the read-only list on purpose — it now counts wrong
+   * answers and locks after 5 (Password.gs pwLock*_, Script Properties), which the engine cannot do.
+   * tools/test_pw_lock.js pins it. */
+  eq('🔴 ...ที่เป็นการอ่านล้วน (ไม่มีเหตุผลเชิงกลไก)', readOnly.length, 16);
   /* the three that have already bitten — named, so a future cleanup cannot quietly drop the check */
   ['insuranceStatus'].forEach(n =>
     ok_('🔴 ' + n + ' ยังอยู่ในรายการ (เคยทำให้ v379 ขึ้นเขียวแล้วไม่มีผลจริง)', readOnly.indexOf(n) >= 0));

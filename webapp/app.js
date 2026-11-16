@@ -8361,7 +8361,7 @@
     if(btn)btn.disabled=true;
     try{ await api('saveStaffSelf',{staffId:USER.staffId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.T_slipUnlock=async()=>{ const pw=$('#slipPw').value;
-    try{ const r=await api('checkStaffPassword',{staffId:USER.staffId,password:pw}); if(r&&r.ok){ SLIP_UNLOCKED=true; GO('slip'); } else toast(EN()?'Wrong password':'รหัสผ่านไม่ถูกต้อง'); }catch(e){err(e);} };
+    try{ const r=await api('checkStaffPassword',{staffId:USER.staffId,password:pw}); if(r&&r.ok){ SLIP_UNLOCKED=true; GO('slip'); } else { const left=Number(r&&r.left); toast((EN()?'Wrong password':'รหัสผ่านไม่ถูกต้อง')+(left>0?(EN()?` — ${left} tries left`:` · เหลืออีก ${left} ครั้ง`):'')); } }catch(e){err(e);} };
   window.T_forgotPw=async()=>{ if(!confirm(EN()?'Send a password reset request to the admin?':'ส่งคำขอรีเซ็ตรหัสผ่านไปที่แอดมินใช่หรือไม่?'))return;
     try{ await api('requestPasswordReset',{staffId:USER.staffId}); notify("ok",EN()?'Request sent to admin':'ส่งคำขอไปที่แอดมินแล้ว — แอดมินจะรีเซ็ตให้'); }catch(e){err(e);} };
   // teacher password change (forced on first login; validation 8-15 incl upper/lower/digit)

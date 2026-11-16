@@ -90,7 +90,7 @@ module.exports = function (files, srcDir) {
   g.console = console;
   g.SpreadsheetApp = { openById: id => store[id], create: n => { const ss = new Spreadsheet(n); store['id_' + n] = ss; return ss; } };
   const props = {};
-  g.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k], setProperty: (k, v) => { props[k] = v; } }) };
+  g.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k], setProperty: (k, v) => { props[k] = v; }, deleteProperty: k => { delete props[k]; } }) };
   g.Logger = { log: () => {} };
   /* DRIVE, IN MEMORY. Not having it at all meant every handler that touches a file was untestable:
    * the daily backup, the photo offload (driveifyImage_), the student folders. A suite that exercised
@@ -146,7 +146,7 @@ module.exports = function (files, srcDir) {
   g.Utilities = {
     getUuid: () => crypto.randomUUID(),
     DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 },
-    computeDigest: (_a, s) => { const h = crypto.createHash('sha256').update(s, 'utf8').digest(); return Array.from(h).map(b => b > 127 ? b - 256 : b); },
+    computeDigest: (_a, s) => { const h = crypto.createHash('sha256').update(Array.isArray(s) ? Buffer.from(s.map(b => b & 255)) : s, 'utf8').digest();  /* Byte[] too, as Apps Script takes (slip FileHash, 2026-11-16) */ return Array.from(h).map(b => b > 127 ? b - 256 : b); },
     computeHmacSha256Signature: (msg, key) => { const h = crypto.createHmac('sha256', key).update(String(msg), 'utf8').digest(); return Array.from(h).map(b => b > 127 ? b - 256 : b); },
     base64EncodeWebSafe: data => { const buf = Array.isArray(data) ? Buffer.from(data.map(b => b < 0 ? b + 256 : b)) : Buffer.from(String(data), 'utf8'); return buf.toString('base64url'); },
     base64DecodeWebSafe: str => Array.from(Buffer.from(String(str), 'base64url')).map(b => b > 127 ? b - 256 : b),

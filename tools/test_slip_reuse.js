@@ -158,7 +158,8 @@ console.log('\n6) one rule, both upload paths');
 {
   /* A slip refused on the single-item screen and accepted on the combined one would be worse than
    * either behaviour on its own. */
-  ok_('the single-item path asks', /var dup = paySlipDupCheck_\(vr, kind, refId\);/.test(slipsGs));
+  // 2026-11-16: the three-layer guard runs first (tools/test_slip_guard3.js); the 1012 rule still decides the rest
+  ok_('the single-item path asks', /paySlipDupCheck_\(vr, kind, refId\)/.test(slipsGs) && /found = paySlipFindSame_\(vr, hash, /.test(slipsGs));
   ok_('the combined path asks the same question', /var prev = \(String\(vr\.verified \|\| ''\)\.indexOf\('NO:1012'\) === 0\) \? paySlipByRef_\(vr\.ref\) : null;/.test(slipsGs));
   ok_('...and answers a re-submit with the group already recorded', /alreadySubmitted: true \}/.test(slipsGs));
   ok_('a rejected slip does not block its own reference for ever',
