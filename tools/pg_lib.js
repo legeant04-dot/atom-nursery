@@ -10,7 +10,10 @@
  */
 const fs = require('fs'), path = require('path');
 
-const ENVFILE = path.join(__dirname, '..', 'secrets', 'supabase.env');
+/* ATOM_PG_ENV picks ANOTHER file in secrets/ (2026-11-16: `atom-prod.env`, the real database for UAT
+ * and move night). The default stays staging, so a tool run without it can never touch production.
+ * Only a bare file name is taken — never a path. */
+const ENVFILE = path.join(__dirname, '..', 'secrets', path.basename(process.env.ATOM_PG_ENV || 'supabase.env'));
 
 function readEnv() {
   /* ON CLOUD RUN THERE IS NO FILE (2026-11-04). The connection string arrives as an environment

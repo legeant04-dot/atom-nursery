@@ -15,7 +15,8 @@
 **ทรัพยากร UAT ที่สร้างแล้ว (16 พ.ย. · ไม่ใช่ความลับ):**
 - Supabase: โปรเจกต์ `atom-prod` (แบบฟรี · Singapore) · Project ID `ftpmbllpangnaekvahpy` — ใช้เป็นสำเนา UAT แล้ว**ล้างให้ว่าง**ก่อนคืนย้าย
 - หน้าเว็บ UAT: Cloud Run `atom-uat-web` → https://atom-uat-web-120486339414.asia-southeast1.run.app (ตอนนี้เป็นหน้ารอ · `min-instances 0`)
-- Apps Script UAT: โปรเจกต์ "Atom Nursery UAT" scriptId `1CkgyYvvuiifdTxbTBbFpjbMhHqCrYEmOgetNqvRQwYF1_jaZfg5m7B2_` · deployment `AKfycbyZLcCasfkWNb7JpeJAD_lhN5MTg3p2WkJqZE7GzBaPh9tx5pKyjzqvmxnPFFbR4peh` (โค้ด branch `golive` · ยังไม่ได้ตั้ง Script Properties)
+- Apps Script UAT: โปรเจกต์ "Atom Nursery UAT" scriptId `1CkgyYvvuiifdTxbTBbFpjbMhHqCrYEmOgetNqvRQwYF1_jaZfg5m7B2_` · deployment `AKfycbyZLcCasfkWNb7JpeJAD_lhN5MTg3p2WkJqZE7GzBaPh9tx5pKyjzqvmxnPFFbR4peh` (โค้ด branch `golive` · Script Properties ต่อ atom-prod แล้ว 16 พ.ย. — handlePgProbe ผ่าน · ยังไม่ได้ตั้ง DB_BACKEND)
+- LIFF ทดสอบ: `2010457597-RoqhGdPK` (Channel LINE Login เดิม · Endpoint = หน้าเว็บ UAT · 16 พ.ย.)
 - ยังไม่มี: โฮสต์เร็วของ UAT (`atom-fast-uat`) — สร้างหลังใส่รหัสลับ
 
 | | งาน | ใคร | ตรวจยังไง |
