@@ -66,9 +66,19 @@ const SKIP = new Set(['test_pg_engine.js', 'test_pg_load.js', 'test_all.js', 'te
  * ids ('st1') — it tests the host's gate and lock logic, not the database. Through the bridge its
  * fixture reaches a real uuid column and fails on "st1" (failing the same way at 1273fa6, before the
  * cache-version work — checked 2026-11-05). The host's real-database proof is test_fast_host_writes_live.js. */
-const NO_BRIDGE = new Set(['test_narrow_safe.js', 'test_fast_host_readonly.js']);
+/* + four more of the same shape (2026-11-16): each replaces PG.* or the pg driver with a fake and drives
+ * server/host.js on fixture ids ('s1'). Through the bridge they died at once on "invalid input syntax for
+ * type uuid: "s1"" — identically on the commit before. They test the host's gate, pool, revoke and audit
+ * logic and the PIN door, not the database. */
+const NO_BRIDGE = new Set(['test_narrow_safe.js', 'test_fast_host_readonly.js',
+  'test_fast_host_audit.js', 'test_fast_host_pool.js', 'test_fast_host_revoke.js', 'test_pin.js']);
+/* EVERY *_live suite is a network suite, not only the ones named in SKIP (2026-11-16). The W3/W4 route
+ * suites added since (bills · payments · prepay · payroll · pickup · checkin · security · freeze) each make
+ * their own tenant and connection; under the bridge they failed while passing on their own
+ * (payments_live 47/47). They are listed at the end to be run by name. */
+const LIVE = f => /_live\.js$/.test(f);
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
-  .filter(f => /^test_.*\.js$/.test(f) && !SKIP.has(f) && f !== 'test_all_pg.js')
+  .filter(f => /^test_.*\.js$/.test(f) && !SKIP.has(f) && !LIVE(f) && f !== 'test_all_pg.js')
   .filter(f => !want.length || want.some(w => f.indexOf(w) >= 0))
   .sort();
 
@@ -108,5 +118,9 @@ console.log('\n─────────────────────�
 console.log('  🐘 บน Postgres : ' + onPg + ' ชุด  (' + trips + ' round trips · ' + rows + ' แถว)');
 console.log('  ⚪ ไม่แตะข้อมูล : ' + offline + ' ชุด  (ตรวจซอร์ส / mock ของ Sheets — ฐานข้อมูลไม่เกี่ยว)');
 console.log('  ' + (failed ? '❌ ล้มเหลว     : ' + failed + ' ชุด' : '✅ ล้มเหลว     : 0 ชุด'));
-console.log('──────────────────────────────────────────────────────────────\n');
+console.log('──────────────────────────────────────────────────────────────');
+const liveList = fs.readdirSync(path.join(ROOT, 'tools')).filter(f => /^test_.*_live\.js$/.test(f)).sort();
+console.log('  🌐 ชุด *_live ไม่ผ่านสะพาน — รันทีละชุดด้วยชื่อ (ห้ามรันพร้อมกัน):');
+liveList.forEach(f => console.log('       node tools/' + f));
+console.log('');
 process.exit(failed ? 1 : 0);
