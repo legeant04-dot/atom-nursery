@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.510'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.511'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1013,6 +1013,7 @@
       document.body.classList.add('viewas');
       b.innerHTML=`<span>👁️ ${EN()?'View only — you can open anything, but not change it':'ดูอย่างเดียว — เปิดดูได้ทุกอย่าง แต่แก้ไขไม่ได้'}</span>`;
     }
+    if (window.__atomObsStyle) window.__atomObsStyle();   // v511 — editing controls hidden for an Observer (and shown again on sign-out)
     if(USER) refreshBell();
   }
   // staffId matters now: teachers have their own inbox rows (a parent's journal comment lands there)
@@ -1422,6 +1423,7 @@
     if(sn.y) window.scrollTo(0,sn.y);
   }
   window.GO = function(screen, opts){
+    if (window.__atomObsStyle) window.__atomObsStyle();   // v511 — cheap: returns at once unless an Observer has new A_ functions to hide
     /* NOBODY IS SIGNED IN, SO THERE IS NO SCREEN TO GO TO.
      *
      * `SCREENS[USER.role]` threw "Cannot read properties of null (reading 'role')" on live — twice,
@@ -18547,6 +18549,35 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
   ['home','leaves','finance','dspm'].forEach(k => { SCREENS.Observer[k] = (...a) => SCREENS.Admin[k](...a); });
   const isObserver = () => !!(USER && USER.role === 'Observer');
+  /* 👁️ AN OBSERVER IS NOT SHOWN A BUTTON THE SERVER WILL REFUSE (v511, 2026-11-16).
+   *
+   * The role function review (docs/ROLE_FUNCTIONS.md, 14 Nov) found the four screens an Observer
+   * shares with the Admin still drawing ประกาศ · เชื่อม · มุมมอง · edit/delete announcement ·
+   * edit/cancel leave — and every pop-up behind them draws more (approve, confirm slip, save). The
+   * server refuses each one and the api wrapper below stops it with a toast, so nothing was ever
+   * changed; but a screen full of buttons that all answer "ไม่มีสิทธิ์" tells the person the app is
+   * broken, not that they are read-only.
+   *
+   * ONE RULE, not a patch per screen — the same reasoning as the ENDED/PAUSED gate above: a screen
+   * written next year is covered without anybody remembering. Built from the functions that exist
+   * on window when an Observer signs in, so a new A_edit… is hidden the day it is written. CSS, not a
+   * pass over the DOM after each paint: an attribute selector hides the control as it is inserted,
+   * so it never flashes. The api guard stays as the second layer, and the server is still the one
+   * that decides. */
+  const OBS_EDIT_RE = /^A_(add|edit|del|delete|dup|cancel|link|unlink|appApprove|appReject|appVisit|appCfgSave|appSig|appPrintSave|approve|reject|confirm|issue|cycleIssue|gen|save|remove|resume|pause|staffPause|staffResume|staffReturn|staffEnd|studentEnd|reset|restore|recalc|recompute|reimport|reinstall|process|pull|dedup|orph|bulk|ot(Save|Waive|Cancel|Restore|Verify|w)|hot(Add|Del|Save|KidsSave|KidsEdit|Fill)|qr(Add|Del|Save)|pp(Add|Del|Save|Toggle)|pkg(Delete|Save|Form)|sv(Save|Delete|Close|Form|Q)|slv(Del|Save|Edit)|slip(Approve|OkSave|OkUndo)|bill(Undo)|fin(AddCharge|Cash|DelBill|DelCharge|IssueBill|SaveBase|Compute)|fi(Save|Edit|Photo|Retire|Seed)|fm(Save)|inj(Decide|Delete|EditSave|Edit|Unlock)|insurance(Save|Edit)|cert(SaveText|Upload|Settings|Clear)|contrib|soc(Batch)|sot(Batch)|sperfAdjust|term(Do|Form|Cancel)|tzFix|unlock|viewAs|viewAsParent|viewAsStaff|signOutStaff|resetPw|resetPin|viewPw|lineWho(Add|Del|Save|Set)|setGroup|setLeave|setMoney|setNotify|setTools|set$|requireCI|reqCI|saveReqCI|attPunch|editAtt|editStaffTime|docInfoSave|backfillConfig|packages|importFile|consentSet|childOnToggle|bc(Add|Remove|SaveHours)|salaryPaid|dspm(Del|Save|Form)|assessComment|editAssess|payTypeToggle|planFill|sendLine|rejectOT|confirmOT|deleteOT|perfClear|renameDep|yrevSinceSave)/;
+  window.__atomObsStyle = () => {
+    const on = isObserver();
+    document.body.classList.toggle('ro-observer', on);
+    let st = document.getElementById('obsHide');
+    if (!on) { if (st) st.remove(); return; }
+    const names = Object.keys(window).filter(k => /^A_\w+$/.test(k) && typeof window[k] === 'function' && OBS_EDIT_RE.test(k));
+    /* rebuilt whenever more A_ functions exist than last time: a session restored at start-up paints the
+     * header BEFORE the admin screens have been defined, and the first build then holds nothing */
+    if (st && Number(st.dataset.n) >= names.length) return;
+    if (!st) { st = document.createElement('style'); st.id = 'obsHide'; document.head.appendChild(st); }
+    st.dataset.n = names.length;
+    st.textContent = names.map(n => 'body.ro-observer [onclick*="' + n + '("]').join(',\n') + '{display:none!important}';
+  };
   {
     const _api = window.api;
     // Rosters come back in sheet order, and a dozen screens read them WITHOUT going through A_CACHE.

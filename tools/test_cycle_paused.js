@@ -24,7 +24,12 @@ function eq(label, got, want) {
 }
 const app = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
 
-const MONTH = '2026-11';            // เดือนในอนาคต เพื่อให้ "ลาตลอดเดือน" คุมได้แน่นอน
+/* 🔴 RELATIVE TO THE DAY IT RUNS (2026-11-16). This was '2026-11' with a pause ending '2026-11-16' — a
+ * "future month" that became the current one, and on the 16th the half-month pause ended and the suite
+ * crashed. The billing month is always two ahead; every pause starts this month (already begun). */
+const ymAdd = (ym, n) => { const d = new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+const NOW_YM = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 7);   // Bangkok
+const MONTH = ymAdd(NOW_YM, 2);     // เดือนในอนาคต เพื่อให้ "ลาตลอดเดือน" คุมได้แน่นอน
 const ADMIN = { staffId: 'STF-A' };
 
 function fresh() {
@@ -39,9 +44,9 @@ function fresh() {
       kid('S-NORMAL', 'อาร์ม'),
       kid('S-OWNDAY', 'ใยไหม', { BillingDay: 15 }),
       // ลาตลอดเดือน พ.ย. — issueBill ต้องปฏิเสธ
-      kid('S-ALLMONTH', 'บีม', { Status: 'PAUSED', PauseFrom: '2026-10-20', PauseTo: '2026-12-10' }),
+      kid('S-ALLMONTH', 'บีม', { Status: 'PAUSED', PauseFrom: NOW_YM + '-01', PauseTo: ymAdd(MONTH, 1) + '-10' }),
       // ลาแค่ครึ่งเดือน — ยังออกบิลได้
-      kid('S-HALF', 'ปลื้ม', { Status: 'PAUSED', PauseFrom: '2026-10-20', PauseTo: '2026-11-16' })
+      kid('S-HALF', 'ปลื้ม', { Status: 'PAUSED', PauseFrom: NOW_YM + '-01', PauseTo: MONTH + '-16' })
     ],
     staff: [{ StaffID: 'STF-A', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin' }],
     parents: [], classes: [{ ClassID: 'C1', ClassName: 'Nursery 1' }],
@@ -113,7 +118,7 @@ console.log('\n4) ตัวเลขบนปุ่มของกลุ่ม�
   const { M, H } = fresh();
   // เด็กที่ยังไม่ถึงวันเริ่มเรียน — issueBill ปฏิเสธเหมือนกัน (NOT_ENROLLED_YET)
   M.students.push({ StudentID: 'S-SOON', NameTH: 'น้องมิว', Nickname: 'มิว', Class: 'Nursery 1',
-    Plan: 'p1', Status: 'ACTIVE', ParentID: 'PAR-X', DOB: '2024-01-01', EnrollDate: '2027-01-05' });
+    Plan: 'p1', Status: 'ACTIVE', ParentID: 'PAR-X', DOB: '2024-01-01', EnrollDate: ymAdd(MONTH, 2) + '-05' });
   const bg = H.billingGroups(Object.assign({ month: MONTH }, ADMIN));
   const g5 = (bg.groups || []).find(g => g.day === 5);
   /* 🔴 ของเดิม pending = "ยังไม่ออกบิล และไม่ได้ชำระล่วงหน้า" เฉย ๆ จึงนับคนที่ยังไม่เริ่มเรียนด้วย
