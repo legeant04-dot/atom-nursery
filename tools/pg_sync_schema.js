@@ -85,7 +85,10 @@ if (require.main === module) (async () => {
 
   const have = await c.query("select table_name from information_schema.tables where table_schema='public'");
   const haveTables = new Set(have.rows.map(r => r.table_name));
-  const haveIdx = await c.query("select indexname, indexdef from pg_indexes where schemaname='public' and indexname like '%_code_uq'");
+  /* `_code_uq` alone never saw cache_version_uq, so every run reported it "to create" although it
+   * existed (found 2026-11-16 on atom-prod). Also read every index the file names — but only those,
+   * so no other unique index can become "stale" and be dropped by --apply. */
+  const haveIdx = await c.query("select indexname, indexdef from pg_indexes where schemaname='public' and (indexname like '%_code_uq' or indexname = any($1))", [[...wantUq.keys()]]);
   const haveUq = new Map();
   haveIdx.rows.forEach(r => {
     const m = /\(([^)]*)\)\s*$/.exec(r.indexdef);
