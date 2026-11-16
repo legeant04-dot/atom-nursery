@@ -1,0 +1,5 @@
+# Only these two files are uploaded to build the backup image. Never add secrets/ or anything else.
+/*
+!/Dockerfile
+!/backup.js
+!/.gcloudignore
