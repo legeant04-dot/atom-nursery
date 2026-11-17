@@ -18,6 +18,21 @@
  * Run it straight after a backup (`gcloud run jobs execute atom-backup --wait`) while nobody is
  * writing (the rehearsal, move night): a row written between the dump and the comparison shows up
  * as a difference, and the report says so rather than calling it a broken backup.
+ *
+ * ── MODE=target — THE REAL RECOVERY: restore the backup INTO the database in SUPABASE_DB_URL ──────
+ * Everything above runs first (the file must restore cleanly into an empty Postgres before it is
+ * allowed near a real one). Then, in ONE transaction on the target: every object the backup holds
+ * is dropped and recreated from it (pg_restore --clean --if-exists --single-transaction). Any error
+ * rolls the whole thing back and the target is exactly as it was. The schema `public` itself is
+ * kept (Supabase's grants live on it); tables the backup does not have are left alone and reported.
+ * Afterwards every table on the target must equal the backup, row for row.
+ *
+ * It replaces data, so it will not run unless CONFIRM is exactly
+ *     restore-into-<TARGET_LABEL>-<today, Bangkok, YYYY-MM-DD>
+ * passed at execute time:
+ *     gcloud run jobs execute atom-restore-drill --update-env-vars MODE=target,CONFIRM=restore-into-atom-prod-2026-11-18
+ * A command copied from yesterday's notes is refused. Into a NEW database (the real disaster):
+ * add --update-secrets SUPABASE_DB_URL=<that database's secret>:latest and TARGET_LABEL=<its name>.
  */
 'use strict';
 const fs = require('fs'), crypto = require('crypto'), { spawnSync } = require('child_process');
@@ -27,6 +42,9 @@ const PREFIX = (process.env.PREFIX || 'atom-prod').replace(/[^a-z0-9_-]/gi, '');
 const OBJECT = process.env.OBJECT || '';                 // optional: drill a specific file
 const MIN_TABLES = Number(process.env.MIN_TABLES || 60);
 const COMPARE = process.env.COMPARE !== '0';             // 0 = restore only (no live comparison)
+const MODE = process.env.MODE || 'drill';                // 'target' = restore INTO SUPABASE_DB_URL
+const TARGET_LABEL = (process.env.TARGET_LABEL || 'atom-prod').replace(/[^a-z0-9_-]/gi, '');
+const bkkDay = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
 
 /* same rule as tools/pg_lib.js parseConn (copied: this image carries no repo code) */
 function parseConn(s) {
@@ -77,6 +95,13 @@ async function token() {
   const t0 = Date.now();
   if (!BUCKET) fail('BUCKET not set');
   if (COMPARE && !cfg) fail('SUPABASE_DB_URL ไม่ได้ตั้ง หรืออ่านไม่ออก (ตั้ง COMPARE=0 ถ้าจะกู้อย่างเดียว)');
+  if (MODE !== 'drill' && MODE !== 'target') fail('MODE ต้องเป็น drill หรือ target');
+  if (MODE === 'target') {
+    const want = 'restore-into-' + TARGET_LABEL + '-' + bkkDay();
+    if (process.env.CONFIRM !== want) fail('MODE=target จะแทนที่ข้อมูลใน ' + TARGET_LABEL + ' — ต้องส่ง CONFIRM=' + want + ' (วันที่ของวันนี้)');
+    if (!cfg) fail('MODE=target ต้องมี SUPABASE_DB_URL');
+    step('⚠️ MODE=target: จะกู้ไฟล์สำรองลงฐาน ' + TARGET_LABEL + ' (แทนที่ทุกตารางที่อยู่ในไฟล์)');
+  }
   const auth = { Authorization: 'Bearer ' + await token() };
   const api = 'https://storage.googleapis.com/storage/v1/b/' + encodeURIComponent(BUCKET) + '/o';
 
@@ -145,7 +170,8 @@ async function token() {
     restoreSeconds: restoreSec, tables: tables.length, rows, compared: COMPARE, differences: [] };
 
   // 5. compare with atom-prod (read-only transaction)
-  if (COMPARE) {
+  /* MODE=target skips this: a broken target (the reason for restoring) may not even have the tables */
+  if (COMPARE && MODE !== 'target') {
     const live = parse(psql(prodEnv(), 'begin; set transaction read only;\n' + fp + ';\ncommit;', 'fingerprint atom-prod'));
     for (const t of tables) {
       const a = restored[t], b = live[t];
@@ -159,9 +185,37 @@ async function token() {
       report.hint = 'ถ้ามีคนเขียนข้อมูลหลังไฟล์นี้ถูกสร้าง (' + ageMin + ' นาทีที่แล้ว) ความต่างนี้เป็นเรื่องปกติ — สำรองใหม่แล้วซ้อมทันทีตอนไม่มีใครใช้';
     }
   }
-  report.seconds = Math.round((Date.now() - t0) / 1000);
   run('pg_ctl', ['-D', PGDATA, '-m', 'fast', 'stop'], process.env, 'pg_ctl stop');
+
+  // 6. MODE=target — restore INTO the real database, then prove it equals the backup
+  if (MODE === 'target') {
+    /* keep schema public (and its comment) — Supabase's grants are on it; everything else in the file is replaced */
+    const list = run('pg_restore', ['--list', DUMP], process.env, 'list').split('\n')
+      .filter(l => !/^\d+;.* SCHEMA - public /.test(l) && !/^\d+;.* COMMENT - SCHEMA public /.test(l)).join('\n');
+    fs.writeFileSync('/tmp/target.list', list);
+    const tt = Date.now();
+    run('pg_restore', ['--clean', '--if-exists', '--no-owner', '--no-acl', '--exit-on-error', '--single-transaction',
+      '-L', '/tmp/target.list', '-d', cfg.database, DUMP], prodEnv(), 'pg_restore into ' + TARGET_LABEL, 30);
+    report.targetRestoreSeconds = Math.round((Date.now() - tt) / 100) / 10;
+    step('กู้ลง ' + TARGET_LABEL + ' เสร็จใน ' + report.targetRestoreSeconds + ' วินาที');
+    const after = parse(psql(prodEnv(), 'begin; set transaction read only;\n' + fp + ';\ncommit;', 'fingerprint target after'));
+    for (const t of tables) {
+      const a = restored[t], b = after[t];
+      if (!b) report.differences.push({ table: t, problem: 'ไม่มีหลังกู้' });
+      else if (a.n !== b.n) report.differences.push({ table: t, problem: 'จำนวนแถว', backup: a.n, target: b.n });
+      else if (a.h !== b.h) report.differences.push({ table: t, problem: 'ข้อมูลในแถวต่างกัน', rows: a.n });
+    }
+    report.extraTablesOnTarget = psql(prodEnv(), "select tablename from pg_tables where schemaname='public' order by 1", 'list target')
+      .split('\n').filter(t => t && !restored[t]);
+    report.mode = 'target'; report.target = TARGET_LABEL; report.ok = !report.differences.length;
+  }
+  report.seconds = Math.round((Date.now() - t0) / 1000);
   console.log(JSON.stringify(report));
+  if (MODE === 'target') {
+    if (!report.ok) fail('กู้ลง ' + TARGET_LABEL + ' แล้ว ' + report.differences.length + ' ตารางไม่ตรงกับไฟล์สำรอง');
+    console.log('✅ RESTORE INTO ' + TARGET_LABEL + ' PASSED: ' + report.tables + ' ตาราง · ' + rows + ' แถว · ตรงกับไฟล์สำรองทุกตาราง');
+    return;
+  }
   if (!report.ok) fail(report.differences.length + ' ตารางไม่ตรง — ดูบรรทัด JSON ด้านบน');
   console.log('✅ RESTORE DRILL PASSED: ' + report.tables + ' ตาราง · ' + rows + ' แถว · ตรงกับ atom-prod ทุกตาราง');
 })().catch(e => fail(e && e.stack || e));

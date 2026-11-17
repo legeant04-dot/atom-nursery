@@ -19,8 +19,10 @@
 | ☐ | **R2 Dry run** | `node tools/pg_migrate.js --file <ไฟล์> --dry --report secrets/export/money_R.md` | ไม่มีคอลัมน์หาย · ไม่มีค่าเกิน numeric(12,2) · รายงานเงินออก | |
 | ☐ | **R3 ย้ายจริงลง atom-prod** | `ATOM_PG_ENV=atom-prod.env node tools/pg_migrate.js --file <ไฟล์> --tenant atom --report secrets/export/money_R.md` · **จด tenant id** ที่พิมพ์ออกมา (ใช้ R7) | จบไม่มี error | |
 | ☐ | **R4 ตรวจว่าตรง** | `ATOM_PG_ENV=atom-prod.env node tools/pg_diff_check.js --file <ไฟล์>` | **diff ว่าง** | |
-| ☐ | **R5 ทดสอบ route บนข้อมูลจริง** | ⚠️ **ยังไม่มีเครื่องมือ** — ชุดทดสอบ 95 ชุด (`run_dbpg_parity`) ใช้ข้อมูลตัวอย่าง ไม่ใช่ข้อมูลจริง · ที่ต้องมี: ทุก route อ่าน × (แอดมิน · ครู 1 คน · ผู้ปกครอง 1 คน) บนข้อมูลจริง ตอบเหมือนกันทั้ง "ชีตจาก export" และ "atom-prod" · ดูหมายเหตุท้ายเอกสาร | ทุก route ตอบเหมือนกัน | |
+| ☐ | **R5 ทดสอบ route บนข้อมูลจริง** | `ATOM_PG_ENV=atom-prod.env node tools/route_sweep_real.js --file <ไฟล์> --tenant atom` — ทุก route อ่านของแอป (33 ตัวจาก `FAST_ACTIONS`) × แอดมิน · ครู · หัวหน้าครู · ผู้ปกครอง (คนจริงจากข้อมูล เลือกตามกฎ) · ฝั่ง A = Apps Script บนข้อมูลใน export (ในเครื่อง) · ฝั่ง B = เซิร์ฟเวอร์ใหม่บน atom-prod · พิมพ์แค่ชื่อ route + ตำแหน่งที่ต่าง (ไม่พิมพ์ข้อมูล) · ผลละเอียด → `secrets/export/route_sweep_<วันที่>.json` | **ไม่ตรง 0** · `🔒 ฐานข้อมูลไม่ถูกเปลี่ยน` · ครบ 4 บทบาท (ถ้าขาดบทบาทไหน จดไว้) | |
 | ☐ | **R6 สำรอง + ซ้อมกู้** | `gcloud run jobs execute atom-backup --region asia-southeast1 --wait` แล้ว**ทันที** `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait` · อ่านผลตาม `docs/BACKUP.md` "ซ้อมกู้" | `✅ RESTORE DRILL PASSED` · 60 ตาราง · **ตรงกับ atom-prod ทุกตาราง** · จดเวลากู้ | |
+
+| ☐ | **R6b ซ้อมกู้จริงลง atom-prod** | ต่อจาก R6 ทันที (ยังไม่มีใครใช้): `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait --update-env-vars MODE=target,CONFIRM=restore-into-atom-prod-2026-11-18` → แล้ว `ATOM_PG_ENV=atom-prod.env node tools/pg_sync_schema.js` + `pg_diff_check` (R4) ซ้ำ | `✅ RESTORE INTO atom-prod PASSED` · sync 0 ทุกข้อ · diff ว่าง · **จดเวลากู้ = RTO จริง** | |
 
 > R6 ทำก่อนเปิด UAT (R7) เพราะต้องเทียบตอนไม่มีใครเขียน · **กู้ไม่ผ่าน = ไม่ย้าย** (ผอ. 16/11)
 
@@ -44,7 +46,9 @@
 - ว่างอ่านรายงานเงิน (R10) เย็นวันพฤหัส
 - สลิปเงินเดือน ต.ค. + ยอดบิล ธ.ค. คำนวณมือ (ใช้ใน UAT ④-ข ④-ค)
 
-## หมายเหตุ R5 — ทดสอบ route บนข้อมูลจริง (ช่องว่างที่พบ 17 พ.ย.)
+## หมายเหตุ R5 — ทดสอบ route บนข้อมูลจริง (ช่องว่างที่พบ 17 พ.ย. · ปิดแล้ว)
 
-ROLLOUT_PLAN เขียนว่า "รันชุดทดสอบทุก route บนสำเนานั้น" แต่ชุดทดสอบที่มีทั้งหมดใช้ข้อมูลที่เขียนขึ้นในตัวทดสอบเอง — **ยังไม่มีอะไรเคยรัน route ด้วยข้อมูลจริง 4 ปีของโรงเรียน** ซึ่งเป็นที่ที่ค่าแปลก ๆ (แถวเก่า ช่องว่าง วันที่รูปแบบเก่า) อยู่
-เครื่องมือที่เสนอ `tools/route_sweep_real.js`: โหลดไฟล์ export เข้า harness (ในเครื่อง ไม่ต่อเน็ต) → เรียกทุก route อ่านในฐานะ แอดมิน · ครู · ผู้ปกครอง → เทียบกับผลเดียวกันผ่าน atom-prod (`ATOM_DB=pg`) · พิมพ์แค่ชื่อ route + ผ่าน/ไม่ผ่าน (ไม่พิมพ์ข้อมูล) · **ต้องสร้างก่อน R5 — ประมาณครึ่งวัน**
+ROLLOUT_PLAN เขียนว่า "รันชุดทดสอบทุก route บนสำเนานั้น" แต่ชุดทดสอบที่มีทั้งหมดใช้ข้อมูลที่เขียนขึ้นในตัวทดสอบเอง — ยังไม่เคยมีอะไรรัน route ด้วยข้อมูลจริง 4 ปีของโรงเรียน
+→ `tools/route_sweep_real.js` (17 พ.ย.) · ฐานถูกตรวจลายนิ้วมือทุกตารางก่อน/หลัง — เปลี่ยน = ไม่ผ่าน
+· self-test บน staging (`--from-db --tenant <code>`): แอดมิน + ครู **66/66 ตรง** · ฐานไม่เปลี่ยน · ข้อมูล staging ไม่มีผู้ปกครองที่ผูก LINE และไม่มีหัวหน้าครู — สองบทบาทนี้ได้ทดสอบครั้งแรกบนข้อมูลจริงใน R5
+· ฝั่ง Apps Script บังคับ session เหมือนระบบจริง (`RequireSessionToken`) — ไม่บังคับ = ไม่ผ่าน applyIdentity_ และสองฝั่งจะตอบคนละคำถาม (พบตอน self-test รอบแรก)
