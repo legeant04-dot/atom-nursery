@@ -14,10 +14,10 @@
 
 | | ขั้น | ทำ | ผ่านเมื่อ | ⏱ |
 |---|---|---|---|---|
-| ☐ | **R0 เช็กก่อนเริ่ม** | ระบบจริงไม่มี error ค้าง · สำรองทุกคืนรอบล่าสุด `ok=True tables=60` (`docs/BACKUP.md`) · `node tools/run_dbpg_parity.js` เขียวแล้ว (17 พ.ย. 95/95) · atom-prod มี 60 ตาราง **และว่าง** (ไม่มี tenant `atom`) | ครบ | |
+| ☐ | **R0 เช็กก่อนเริ่ม** | ระบบจริงไม่มี error ค้าง · สำรองทุกคืนรอบล่าสุด `ok=True tables=60` (`docs/BACKUP.md`) · `node tools/run_dbpg_parity.js` เขียวแล้ว (17 พ.ย. 95/95) · atom-prod มี 60 ตาราง **และว่าง** — `ATOM_PG_ENV=atom-prod.env node tools/pg_wipe_uat_copy.js` ต้องขึ้น `tenant: (ไม่มี) · 0/60` | ครบ | |
 | ☐ | **R1 Export** | editor ของ**สคริปต์จริง** › `exportAllForMigration` › Run (อ่านอย่างเดียว) → ดาวน์โหลด JSON → `secrets/export/atom_export_R_<วันที่>.json` | ไฟล์ครบทุกชีต (R2 จะบอกถ้าขาด) · ไม่มี error | |
 | ☐ | **R2 Dry run** | `node tools/pg_migrate.js --file <ไฟล์> --dry --report secrets/export/money_R.md` | ไม่มีคอลัมน์หาย · ไม่มีค่าเกิน numeric(12,2) · รายงานเงินออก | |
-| ☐ | **R3 ย้ายจริงลง atom-prod** | `ATOM_PG_ENV=atom-prod.env node tools/pg_migrate.js --file <ไฟล์> --tenant atom --report secrets/export/money_R.md` · **จด tenant id** ที่พิมพ์ออกมา (ใช้ R7) | จบไม่มี error | |
+| ☐ | **R3 ย้ายจริงลง atom-prod** | `ATOM_PG_ENV=atom-prod.env node tools/pg_migrate.js --file <ไฟล์> --tenant atom --create-tenant "อะตอม เนอสเซอรี่" --name-en "Atom Nursery" --report secrets/export/money_R.md` · tenant id พิมพ์ออกมา (R7 หาเองไม่ต้องจด) | จบไม่มี error · ตัวเลขแต่ละตารางตรงกับ R2 | |
 | ☐ | **R4 ตรวจว่าตรง** | `ATOM_PG_ENV=atom-prod.env node tools/pg_diff_check.js --file <ไฟล์>` | **diff ว่าง** | |
 | ☐ | **R5 ทดสอบ route บนข้อมูลจริง** | `ATOM_PG_ENV=atom-prod.env node tools/route_sweep_real.js --file <ไฟล์> --tenant atom` — ทุก route อ่านของแอป (33 ตัวจาก `FAST_ACTIONS`) × แอดมิน · ครู · หัวหน้าครู · ผู้ปกครอง (คนจริงจากข้อมูล เลือกตามกฎ) · ฝั่ง A = Apps Script บนข้อมูลใน export (ในเครื่อง) · ฝั่ง B = เซิร์ฟเวอร์ใหม่บน atom-prod · พิมพ์แค่ชื่อ route + ตำแหน่งที่ต่าง (ไม่พิมพ์ข้อมูล) · ผลละเอียด → `secrets/export/route_sweep_<วันที่>.json` | **ไม่ตรง 0** · `🔒 ฐานข้อมูลไม่ถูกเปลี่ยน` · ครบ 4 บทบาท (ถ้าขาดบทบาทไหน จดไว้) | |
 | ☐ | **R6 สำรอง + ซ้อมกู้** | `gcloud run jobs execute atom-backup --region asia-southeast1 --wait` แล้ว**ทันที** `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait` · อ่านผลตาม `docs/BACKUP.md` "ซ้อมกู้" | `✅ RESTORE DRILL PASSED` · 60 ตาราง · **ตรงกับ atom-prod ทุกตาราง** · จดเวลากู้ | |
@@ -30,7 +30,7 @@
 
 | | ขั้น | ทำ | ใคร | ผ่านเมื่อ | ⏱ |
 |---|---|---|---|---|---|
-| ☐ | **R7 ต่อ UAT กับข้อมูล** | ① `atom-fast-uat`: `TENANT_ID` = tenant id จาก R3 · `LINE_ALLOW` = LINE ID ผู้ทดสอบ (**รอรายชื่อจาก ผอ.**) · `min-instances 1` ② Apps Script UAT › Script Properties: `PG_TENANT_ID` · `PG_TARGET=production` · `PDPA_SIGNED=yes` · `LINE_SEND=allow` + `LINE_ALLOW` · แล้ว `DB_BACKEND=pg` **เป็นข้อสุดท้าย** ③ build + deploy เว็บ UAT ตาม `UAT_CHECKLIST.md` ⓪ | ผม · ผอ. (Script Properties ที่เป็นค่าลับ) | `ping` ตอบ · ตรวจ LINE แสดง "ส่งเฉพาะผู้ทดสอบ N คน" | |
+| ☐ | **R7 ต่อ UAT กับข้อมูล** | ① `ATOM_PG_ENV=atom-prod.env node tools/uat_wire.js --all-staff --parent-of "เลอา"` (ผู้ทดสอบตาม ผอ. 17/11 = ครูทุกคนในระบบ + Admin + ผอ. + คุณแม่เลอา · แผนก่อน — ดูว่าทุกคน ✓ · ใครยังไม่เคยเข้าแอปด้วย LINE จะขึ้น ✗) → แก้ชื่อที่ ✗ → ใส่ `--apply`: ตั้ง `atom-fast-uat` (TENANT_ID · LINE_ALLOW · min-instances 1) + build/deploy เว็บ UAT + ตรวจ ② **ผอ./คุณ** วาง Script Properties ตามที่เครื่องมือพิมพ์ใน Apps Script UAT — `DB_BACKEND=pg` **เป็นข้อสุดท้าย** | ผม · คุณ/ผอ. (Script Properties) | เครื่องมือขึ้น ✓ ทุกข้อ · ตรวจ LINE ในแอป UAT แสดง "ส่งเฉพาะผู้ทดสอบ N คน" | |
 | ☐ | **R8 ล็อกอินทดสอบ 1 ครั้ง** | มือถือผู้ทดสอบ 1 เครื่อง → เว็บ UAT → LINE → หน้าแรกเห็นข้อมูลจริงของตัวเอง · ป้ายแดง "UAT" | ผม + ผู้ทดสอบ 1 คน | เห็นข้อมูลถูกคน | |
 | ☐ | **R9 ซ้อมถอย (P8)** | บนโปรเจ็กต์ **UAT** เท่านั้น: ① Drive › ทำสำเนาชีตหลัก + HR ของจริง ตั้งชื่อ `REHEARSE-R-` · ตั้ง `WB_MAIN_ID`/`WB_HR_ID` ของ**สคริปต์ UAT** ไปที่สำเนา ② เขียนรายการทดสอบ 3 อย่างผ่านแอป UAT (เช็คอิน · ใบลา · OT) ③ `freezeWrites()` → `rollbackToSheets()` (รันซ้ำจนจบ) → อ่านรายงาน → `rollbackActivate()` → `unfreezeWrites()` ④ ตรวจว่า 3 รายการอยู่ในชีตสำเนา ⑤ `rollbackUndoActivate()` กลับ Postgres · **จับเวลา ① freeze → ③ unfreeze** | ผม | รายงาน 0 ไม่ตรง · 3 รายการครบ · **≤ 10 นาที** | |
 | ☐ | **R10 ผอ. อ่านรายงานเงิน** (เย็น) | `secrets/export/money_R.md` — ส่งทางที่ปลอดภัย (ไม่ใช่ LINE/แชต) หรือเปิดให้ดูบนเครื่อง · ทุกบรรทัดที่ยอดเปลี่ยนจากการปัดทศนิยม ผอ. ต้องยอมรับ | **ผอ.** | ผอ. ยอมรับทุกบรรทัด | |
@@ -40,9 +40,32 @@
 
 ---
 
+## 🧪 ซ้อมแห้งด้วยข้อมูลปลอม — 17 พ.ย. (ผ่าน)
+
+ข้อมูลปลอมปริมาณเท่าโรงเรียนจริง (`tools/make_fake_export.js` จาก tenant ทดสอบบน staging · 6,196 แถว) ผ่านทุกขั้น R2 → R7 บน atom-prod แล้ว**ล้างให้ว่าง**:
+
+| ขั้น | ผล | เวลา |
+|---|---|---|
+| R2 dry | ✅ | < 1 วิ |
+| R3 ย้าย | ✅ หลังแก้ (ดูด้านล่าง) | **3 นาที 39 วิ → 2.4 วิ** |
+| R4 diff | ✅ ไม่ต่างเลย | 1.5 วิ |
+| R5 route | ✅ 66/66 · ฐานไม่เปลี่ยน | 13 วิ |
+| R6 สำรอง + ซ้อมกู้ | ✅ 60 ตาราง · 6,197 แถว ตรงทุกตาราง | กู้ 0.6 วิ |
+| R6b กู้ลง atom-prod | ✅ ตรงทุกตาราง · sync 0 · diff ว่าง | **6.2 วิ** |
+| R7 ต่อ UAT | ✅ Cloud Run + เว็บ UAT deploy + ตรวจ | 1 นาที 16 วิ |
+
+**สิ่งที่ซ้อมแห้งเจอและแก้แล้ว** (ทั้งหมดจะเจอวันซ้อมจริงถ้าไม่ซ้อมแห้ง):
+1. R3 ไม่มีใครสร้าง tenant `atom` → `pg_migrate --create-tenant`
+2. `pg_migrate` เขียนทีละแถว 35 มิลลิวิ/แถว — ข้อมูลจริง 4 ปีอาจกินเวลาช่วงย้ายของคืน D ทั้งหมด → เขียนครั้งละหลายร้อยแถว (เร็วขึ้น ~90 เท่า · test_pg_migrate 47/47)
+3. `uat_wire` หาชื่อในคอลัมน์ `NameTH` แต่ระบบเก็บชื่อใน `Name` → จับคู่ผู้ทดสอบไม่ได้เลยสักคน
+4. `pg_diff_check` จดประวัติ "สะอาด" ของข้อมูลปลอมลง `secrets/diff_history.json` → ลบแล้ว · ตอนซ้อมจริงประวัติวันแรกจะเป็นของข้อมูลจริง
+5. ล้าง atom-prod ไม่มีเครื่องมือ (คู่มือคืนย้ายเขียนว่า "ล้าง" เฉย ๆ) → `tools/pg_wipe_uat_copy.js` (ต้องใส่วันที่ · ปฏิเสธเองตั้งแต่ 27 พ.ย. 21:00 = คืนย้ายขั้น 5a)
+
+หมายเหตุ: `atom-fast-uat` ตอนนี้มี TENANT_ID ของ tenant ปลอมที่ลบไปแล้ว และเว็บ UAT รุ่น UAT ขึ้นแล้ว (ยังไม่มีใครล็อกอินได้ — LINE_ALLOW ว่าง) · R7 พรุ่งนี้ตั้งใหม่ทั้งหมด
+
 ## ต้องได้จาก ผอ. ก่อน R7 (พฤ. 19 พ.ย.)
 
-- **LINE ID ผู้ทดสอบ** (ครูทุกท่าน + คุณแม่เลอา) — ไม่มี = เปิด UAT ได้แต่ LINE ไม่ส่งหาใครเลย
+- ✅ **ผู้ทดสอบ** (ผอ. 17/11): ครูทุกคนในระบบ · Admin · ผอ. · คุณแม่เลอา — `uat_wire --all-staff --parent-of "เลอา"` หา LINE ID เองจากข้อมูล · ถ้า ผอ. ไม่มีแถวใน STAFF/USERS หรือยังไม่เคยเข้าแอปด้วย LINE จะขึ้น ✗ ให้เห็น
 - ว่างอ่านรายงานเงิน (R10) เย็นวันพฤหัส
 - สลิปเงินเดือน ต.ค. + ยอดบิล ธ.ค. คำนวณมือ (ใช้ใน UAT ④-ข ④-ค)
 

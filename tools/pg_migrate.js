@@ -3,6 +3,7 @@
  *
  *   node tools/pg_migrate.js --file secrets/export/atom_export_….json --dry     read + report only
  *   node tools/pg_migrate.js --file …                 --tenant atom             actually write
+ *   … --tenant atom --create-tenant "อะตอม เนอสเซอรี่" --name-en "Atom Nursery"   create the tenant first if missing
  *   node tools/pg_migrate.js --file … --report docs/money_diff.md               save the report
  *
  * The input is what src/Export.gs writes: { MAIN: { SHEET: [rows] }, HR: { … } }, rows decoded the
@@ -396,14 +397,24 @@ async function load(client, tenantId, plan, schema) {
     // syntax error unquoted, which would have failed that whole table on migration day
     const names = Object.values(t.cols).map(n => '"' + n + '"');
     if (!names.length) continue;
+    /* MANY ROWS PER STATEMENT (2026-11-17). One insert per row cost ~35 ms each over the network to
+     * Singapore — the fake dress rehearsal took 3 min 39 s for 6,196 rows, which on four years of the
+     * real school would have eaten the whole migration slot of move night. Same values, same encode_,
+     * same order (seq is assigned in row order), same one transaction per table — only the round trips
+     * change. Chunked under Postgres's 65,535-parameter ceiling. */
+    const keys = Object.keys(t.cols), per = keys.length + 1;
+    const CHUNK = Math.max(1, Math.min(500, Math.floor(60000 / per)));
     await client.query('begin');
     try {
-      for (const row of t.rows) {
-        const vals = Object.keys(t.cols).map(k =>
-          encode_(row[k], schema[t.table][t.cols[k]], t.table + '.' + t.cols[k]));
-        const ph = vals.map((_, i) => '$' + (i + 2)).join(',');
-        await client.query(
-          `insert into ${t.table} (tenant_id,${names.join(',')}) values ($1,${ph})`, [tenantId, ...vals]);
+      for (let i = 0; i < t.rows.length; i += CHUNK) {
+        const part = t.rows.slice(i, i + CHUNK), params = [], tuples = [];
+        part.forEach((row, j) => {
+          const vals = keys.map(k => encode_(row[k], schema[t.table][t.cols[k]], t.table + '.' + t.cols[k]));
+          const base = j * per;
+          params.push(tenantId, ...vals);
+          tuples.push('(' + Array.from({ length: per }, (_, x) => '$' + (base + x + 1)).join(',') + ')');
+        });
+        await client.query(`insert into ${t.table} (tenant_id,${names.join(',')}) values ${tuples.join(',')}`, params);
       }
       await client.query('commit');
       done[t.table] = (done[t.table] || 0) + t.rows.length;
@@ -474,8 +485,17 @@ async function main() {
   const { connect } = require('./pg_lib.js');
   const { client } = await connect();
   const code = String(arg('tenant'));
-  const t = await client.query('select id from tenant where code = $1', [code]);
-  if (!t.rows.length) { console.log('\n🔴 ไม่พบ tenant code "' + code + '"\n'); await client.end(); process.exit(1); }
+  let t = await client.query('select id from tenant where code = $1', [code]);
+  /* --create-tenant "<ชื่อไทย>" (2026-11-17): the fake dress rehearsal found REHEARSAL R3 and move-night
+   * step 3 both assumed the tenant row already existed; nothing created it. Only on request, never silently. */
+  if (!t.rows.length && arg('create-tenant')) {
+    const nameTh = arg('create-tenant') === true ? code : String(arg('create-tenant'));
+    const nameEn = (arg('name-en') && arg('name-en') !== true) ? String(arg('name-en')) : null;
+    t = await client.query('insert into tenant (code, name_th, name_en) values ($1, $2, $3) returning id', [code, nameTh, nameEn]);
+    console.log('\n  🆕 สร้าง tenant "' + code + '" แล้ว');
+  }
+  if (!t.rows.length) { console.log('\n🔴 ไม่พบ tenant code "' + code + '" — ใส่ --create-tenant "<ชื่อโรงเรียน>" เพื่อสร้าง\n'); await client.end(); process.exit(1); }
+  console.log('  tenant id: ' + t.rows[0].id);
   const done = await load(client, t.rows[0].id, plan, schema);
   console.log('\n  ✅ เขียนแล้ว:');
   Object.keys(done).sort().forEach(k => console.log('      ' + k.padEnd(26) + done[k]));
