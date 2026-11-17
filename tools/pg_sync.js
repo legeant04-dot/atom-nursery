@@ -95,12 +95,16 @@ const MATCH_KEY_ = {
   school_config: ['Key'],
   staff_groups: ['GroupName'],
   dspm_criteria: ['AgeLabelTH', 'ItemNo'],
+  /* one row per ITEM of an assessment session — the unique index is composite (schema_inventory
+   * ROW_KEY_), which rowKeys() does not read, so it is named here (real-data rehearsal 2026-11-17) */
+  dspm_assessment: ['AssessmentID', 'ItemNo'],
   // ── logs ────────────────────────────────────────────────────────────────────────────────────
   // ── not a sheet ─────────────────────────────────────────────────────────────────────────────
   /* Apps Script's cache versions (src/DbPg.gs CACHE VERSIONS) — written by the two app writers, never
    * mirrored from a sheet. Named here so it is skipped ON PURPOSE, never diffed against nothing. */
   cache_version: 'NOT_A_SHEET',
   audit_log: 'APPEND_ONLY',
+  absence_followup_log: 'APPEND_ONLY',   // the follow-up trail: ids can repeat within a second (2026-11-17)
   hr_audit_log: 'APPEND_ONLY',
   backup_log: 'APPEND_ONLY',
   perf_log: 'APPEND_ONLY'

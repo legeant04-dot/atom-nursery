@@ -249,6 +249,12 @@ console.log('\n4) the decisions that cost the most to reverse are in the DDL its
     /student_terms_code_uq on student_terms\(tenant_id, "?term_id"?\)/.test(sql));
   ok_('🔴 ...and a survey answer by the ANSWER, not by the survey',
     /survey_responses_code_uq on survey_responses\(tenant_id, "?response_id"?\)/.test(sql));
+  /* The first rehearsal with REAL data (2026-11-17) was refused on both: 80 DSPM sessions hold one row
+   * per item under one AssessmentID, and the follow-up trail's id is only unique to the second. */
+  ok_('🔴 a DSPM row is one ITEM of a session — keyed (assessment_id, item_no), not the session',
+    /dspm_assessment_code_uq on dspm_assessment\(tenant_id, "?assessment_id"?, "?item_no"?\)/.test(sql));
+  ok_('🔴 the absence follow-up trail has NO unique key — its id repeats within one second',
+    !/absence_followup_log_code_uq/.test(sql));
   /* The reserved-word guard. `from` and `to` are columns of STUDENT_TERMS and reserved words in
    * Postgres: unquoted, that one `create table` is a syntax error, which is exactly why the table
    * was missing from staging while sitting in this file. */

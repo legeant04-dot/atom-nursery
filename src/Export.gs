@@ -29,13 +29,19 @@ function exportWorkbook_(ss, label) {
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
     try {
-      /* readObjects_ decodes exactly as the app reads it (decodeCell_): dates as 'YYYY-MM-DD',
-       * blanks as '', JSON cells parsed. That is deliberate — the migration must move the values
-       * the APP sees, not the values the spreadsheet happens to store, or every date and every
-       * empty cell changes meaning on the way across. */
+      /* EVERY CELL THROUGH decodeCell_, the way the app reads it: a date as 'YYYY-MM-DD', a date-time
+       * as 'YYYY-MM-DD HH:mm:ss', a TIME-ONLY cell as 'HH:mm' — all in the spreadsheet's timezone —
+       * and JSON cells parsed. The migration must move the values the APP sees.
+       *
+       * 🔴 FIXED 2026-11-17 (the first rehearsal with real data). This comment used to say readObjects_
+       * did the decoding. It does not — it returns the raw Date — so JSON.stringify wrote every date
+       * as a UTC instant ('…T17:00:00.000Z', the day BEFORE in Bangkok) and every time-only cell as
+       * '1899-12-30T01:17:56.000Z'. pg_migrate could not read the latter as a time and stored NULL:
+       * 4,239 check-in/out times would have been lost on move night, invisibly to the money report.
+       * tools/pg_migrate.js now refuses an export that still carries such instants. */
       var rows = readObjects_(sh).map(function (r) {
         var o = {};
-        for (var k in r) { if (r.hasOwnProperty(k) && k !== '_row') o[k] = r[k]; }
+        for (var k in r) { if (r.hasOwnProperty(k) && k !== '_row') o[k] = decodeCell_(r[k]); }
         return o;
       });
       out[name] = rows;

@@ -357,8 +357,16 @@ const ROW_KEY_ = {
   BILLING: 'BillingID', PAYMENT_SLIPS: 'SlipID', PREPAYMENTS: 'PrepayID', STUDENT_CHARGES: 'ChargeID',
   WITHDRAWALS: 'WithdrawID', STUDENT_TERMS: 'TermID', INSURANCE_PCHI: 'InsuranceID',
   ANNOUNCEMENTS: 'AnnID', COMMENTS: 'CommentID', ADMIN_INBOX: 'InboxID', INJURY_REPORTS: 'InjuryID',
-  DSPM_ASSESSMENT: 'AssessmentID', OT_DAILY: 'OTID', LEAVE_REQUEST_STD: 'LeaveID',
-  ABSENCE_FOLLOWUP_LOG: 'LogID', ACTIVITY_LOG: 'LogID',
+  /* 🔴 FOUND BY THE FIRST REHEARSAL WITH REAL DATA (2026-11-17) — pg_migrate refused both:
+   * DSPM_ASSESSMENT: AssessmentID is ONE PER SUBMISSION SESSION (src/Dspm.gs "one id per submission
+   *   session") and each row is one item of it — 80 sessions had 2–10 rows. The row is the item:
+   *   (AssessmentID, ItemNo), unique on all 399 real rows.
+   * ABSENCE_FOLLOWUP_LOG: LogID is 'AFL-'+date-time to the SECOND+'-'+child (Engine.gs
+   *   setAbsenceFollowup), so two saves for one child in one second share it — 3 real pairs, each a
+   *   different Status/Note. It is a trail (append-only, never updated or deleted by LogID), so it
+   *   gets no unique key, like every other log below. */
+  DSPM_ASSESSMENT: ['AssessmentID', 'ItemNo'], OT_DAILY: 'OTID', LEAVE_REQUEST_STD: 'LeaveID',
+  ABSENCE_FOLLOWUP_LOG: null, ACTIVITY_LOG: 'LogID',
   FOOD_ITEMS: 'ItemID', FOOD_MENU: 'MenuID', CLASS_COVER: 'CoverID',
   SURVEYS: 'SurveyID', SURVEY_RESPONSES: 'ResponseID',   // NOT SurveyID — a survey has many answers
   APPLICATIONS: 'AppID', CONSENTS: 'ConsentID', APPLICATION_DOCS: 'DocID',          // 📝 one row per application · one per consent item
@@ -390,7 +398,8 @@ function assertRowKeysDeclared(tables) {
   const wrong = [];
   tables.forEach(t => {
     const k = ROW_KEY_[t.sheet];
-    if (k && !(t.cols || []).includes(k)) wrong.push(t.sheet + '.' + k);
+    /* one column, or several that TOGETHER identify a row (DSPM_ASSESSMENT) */
+    (k ? [].concat(k) : []).forEach(c => { if (!(t.cols || []).includes(c)) wrong.push(t.sheet + '.' + c); });
   });
   if (!missing.length && !wrong.length) return;
   if (missing.length) {
@@ -645,14 +654,22 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
       L.push(`  -- ${absorbed.join(', ')}: the sheet's own column${absorbed.length > 1 ? 's' : ''}, carried by the`);
       L.push('  -- reserved column of the same name below — same meaning, and never declared twice.');
     }
-    L.push('  created_at  timestamptz not null default now(),');
-    L.push('  updated_at  timestamptz not null default now()');
+    /* 🔴 WHEN THE SHEET OWNS THE COLUMN, IT MAY BE BLANK (real-data rehearsal, 2026-11-17).
+     * An absorbed UpdatedAt/CreatedAt is the SHEET'S value, and old rows have none: 13 journals, 8+7
+     * injury reports in the real export. "not null" refused them, and filling now() would show every
+     * old journal as "edited on migration day" and break the sheet = Postgres comparison. So only for
+     * absorbed columns: nullable, still default now() for rows written afterwards. The ALTER makes a
+     * database created before this match (loosening only — it can never lose a value). */
+    const own = n => absorbed.some(c => snake(c) === n);
+    L.push('  created_at  timestamptz ' + (own('created_at') ? '' : 'not null ') + 'default now(),');
+    L.push('  updated_at  timestamptz ' + (own('updated_at') ? '' : 'not null ') + 'default now()');
     L.push(');');
+    ['created_at', 'updated_at'].filter(own).forEach(n => L.push(`alter table ${tbl} alter column ${n} drop not null;`));
     /* The sheet's own id column becomes a per-tenant unique code — DECLARED, never guessed. See
      * ROW_KEY_ for what the guess asserted about the school's journals and attendance. A null there
      * means this table genuinely holds many rows per person and gets no unique index at all. */
     const idCol = ROW_KEY_[t.sheet] || null;
-    if (idCol) L.push(`create unique index if not exists ${tbl}_code_uq on ${tbl}(tenant_id, ${q(snake(idCol))});`);
+    if (idCol) L.push(`create unique index if not exists ${tbl}_code_uq on ${tbl}(tenant_id, ${[].concat(idCol).map(c => q(snake(c))).join(', ')});`);
     L.push(`create index if not exists ${tbl}_tenant_ix on ${tbl}(tenant_id);`);
     // every read is scoped to one school AND ordered by sheet position, so one index serves both
     L.push(`create index if not exists ${tbl}_seq_ix on ${tbl}(tenant_id, seq);`);

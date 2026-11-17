@@ -236,9 +236,10 @@ create table if not exists pay_adjustments (
   "by_name"                    text,
   -- CreatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
-  created_at  timestamptz not null default now(),
+  created_at  timestamptz default now(),
   updated_at  timestamptz not null default now()
 );
+alter table pay_adjustments alter column created_at drop not null;
 create unique index if not exists pay_adjustments_code_uq on pay_adjustments(tenant_id, "adj_id");
 create index if not exists pay_adjustments_tenant_ix on pay_adjustments(tenant_id);
 create index if not exists pay_adjustments_seq_ix on pay_adjustments(tenant_id, seq);
@@ -480,7 +481,6 @@ create table if not exists absence_followup_log (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists absence_followup_log_code_uq on absence_followup_log(tenant_id, "log_id");
 create index if not exists absence_followup_log_tenant_ix on absence_followup_log(tenant_id);
 create index if not exists absence_followup_log_seq_ix on absence_followup_log(tenant_id, seq);
 alter table absence_followup_log enable row level security;
@@ -640,8 +640,9 @@ create table if not exists applications (
   -- UpdatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  updated_at  timestamptz default now()
 );
+alter table applications alter column updated_at drop not null;
 create unique index if not exists applications_code_uq on applications(tenant_id, "app_id");
 create index if not exists applications_tenant_ix on applications(tenant_id);
 create index if not exists applications_seq_ix on applications(tenant_id, seq);
@@ -850,8 +851,9 @@ create table if not exists daily_journal (
   -- UpdatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  updated_at  timestamptz default now()
 );
+alter table daily_journal alter column updated_at drop not null;
 create index if not exists daily_journal_tenant_ix on daily_journal(tenant_id);
 create index if not exists daily_journal_seq_ix on daily_journal(tenant_id, seq);
 alter table daily_journal enable row level security;
@@ -877,7 +879,7 @@ create table if not exists dspm_assessment (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists dspm_assessment_code_uq on dspm_assessment(tenant_id, "assessment_id");
+create unique index if not exists dspm_assessment_code_uq on dspm_assessment(tenant_id, "assessment_id", "item_no");
 create index if not exists dspm_assessment_tenant_ix on dspm_assessment(tenant_id);
 create index if not exists dspm_assessment_seq_ix on dspm_assessment(tenant_id, seq);
 alter table dspm_assessment enable row level security;
@@ -918,9 +920,10 @@ create table if not exists food_items (
   "photo"                      text,
   -- CreatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
-  created_at  timestamptz not null default now(),
+  created_at  timestamptz default now(),
   updated_at  timestamptz not null default now()
 );
+alter table food_items alter column created_at drop not null;
 create unique index if not exists food_items_code_uq on food_items(tenant_id, "item_id");
 create index if not exists food_items_tenant_ix on food_items(tenant_id);
 create index if not exists food_items_seq_ix on food_items(tenant_id, seq);
@@ -944,8 +947,9 @@ create table if not exists food_menu (
   -- UpdatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  updated_at  timestamptz default now()
 );
+alter table food_menu alter column updated_at drop not null;
 create unique index if not exists food_menu_code_uq on food_menu(tenant_id, "menu_id");
 create index if not exists food_menu_tenant_ix on food_menu(tenant_id);
 create index if not exists food_menu_seq_ix on food_menu(tenant_id, seq);
@@ -1057,9 +1061,11 @@ create table if not exists injury_reports (
   "treatment_by"               text,
   -- CreatedAt, UpdatedAt: the sheet's own columns, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
 );
+alter table injury_reports alter column created_at drop not null;
+alter table injury_reports alter column updated_at drop not null;
 create unique index if not exists injury_reports_code_uq on injury_reports(tenant_id, "injury_id");
 create index if not exists injury_reports_tenant_ix on injury_reports(tenant_id);
 create index if not exists injury_reports_seq_ix on injury_reports(tenant_id, seq);
@@ -1373,9 +1379,11 @@ create table if not exists student_terms (
   "updated_by"                 text,
   -- CreatedAt, UpdatedAt: the sheet's own columns, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
 );
+alter table student_terms alter column created_at drop not null;
+alter table student_terms alter column updated_at drop not null;
 create unique index if not exists student_terms_code_uq on student_terms(tenant_id, "term_id");
 create index if not exists student_terms_tenant_ix on student_terms(tenant_id);
 create index if not exists student_terms_seq_ix on student_terms(tenant_id, seq);
@@ -1503,9 +1511,10 @@ create table if not exists surveys (
   "created_by"                 text,
   -- CreatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
-  created_at  timestamptz not null default now(),
+  created_at  timestamptz default now(),
   updated_at  timestamptz not null default now()
 );
+alter table surveys alter column created_at drop not null;
 create unique index if not exists surveys_code_uq on surveys(tenant_id, "survey_id");
 create index if not exists surveys_tenant_ix on surveys(tenant_id);
 create index if not exists surveys_seq_ix on surveys(tenant_id, seq);

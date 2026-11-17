@@ -320,6 +320,28 @@ function planLoad(data, schema) {
   return { plan, unknownTables, unknownCols };
 }
 
+/* ── 🔴 AN EXPORT THAT WAS NEVER DECODED (real-data rehearsal, 2026-11-17) ───────────────────────
+ * src/Export.gs once wrote the raw Date of every date cell — JSON turns that into a UTC instant
+ * ('2026-05-01T17:00:00.000Z' is 2 May in Bangkok) and a TIME-ONLY cell into '1899-12-30T01:17:56Z'.
+ * A date column then lands a day early, and a time column cannot read it at all and is stored NULL:
+ * every check-in and check-out time, with nothing in the money report to show it. So a UTC instant
+ * in a column Postgres types `date` or `time` is not data, it is a broken export — the whole run
+ * stops, dry or not, and names where. (A `timestamptz` column reads an instant correctly, and a text
+ * column may legitimately hold one, so neither is counted.) */
+const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+function undecodedInstants(plan, schema) {
+  const out = [];
+  for (const t of plan) {
+    for (const [k, pg] of Object.entries(t.cols)) {
+      const ty = String(schema[t.table][pg] || '').toLowerCase();
+      if (!/^(date|time)\b/.test(ty) || /^timestamp/.test(ty)) continue;
+      const n = t.rows.filter(r => typeof r[k] === 'string' && UTC_INSTANT.test(r[k])).length;
+      if (n) out.push({ where: t.wb + '.' + t.sheet + '.' + k, type: ty.split(/\s/)[0], n });
+    }
+  }
+  return out;
+}
+
 /* ── A VALUE THE SHEET HOLDS, IN A COLUMN POSTGRES DECLARES ──────────────────────────────────────
  *
  * 🔴 EXPANDED BY PHASE 2.3 (2026-10-13). Running the suites against the real schema produced, in
@@ -447,6 +469,14 @@ async function main() {
   console.log('  ส่งออกเมื่อ : ' + (data.exportedAt || '-'));
   console.log('  ตาราง     : ' + plan.length + '  ·  แถวรวม ' + plan.reduce((a, t) => a + t.count, 0));
 
+  const raw = undecodedInstants(plan, schema);
+  if (raw.length) {
+    console.log('\n  🔴 หยุด — ไฟล์ส่งออกนี้ยังไม่ถอดค่าวันที่/เวลา (เป็นเวลา UTC ดิบ) ' + raw.reduce((a, x) => a + x.n, 0) + ' ช่อง:');
+    raw.forEach(x => console.log('      · ' + x.where.padEnd(40) + x.type.padEnd(6) + x.n));
+    console.log('     ย้ายไฟล์นี้ = วันที่เลื่อนไป 1 วัน และเวลาหาย · ส่งออกใหม่ด้วย src/Export.gs ที่แก้แล้ว (2026-11-17)\n');
+    process.exit(1);
+  }
+
   if (unknownTables.length) {
     console.log('\n  ⚠️  ชีตที่ไม่มีตารางรองรับ (ข้ามไป):');
     unknownTables.forEach(s => console.log('      · ' + s));
@@ -503,5 +533,5 @@ async function main() {
   console.log('');
 }
 
-module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_, moneyColumns };
+module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_, moneyColumns, undecodedInstants };
 if (require.main === module) main().catch(e => { console.log('🔴 ' + e.message); process.exit(1); });
