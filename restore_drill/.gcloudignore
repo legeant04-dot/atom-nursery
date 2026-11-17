@@ -1,0 +1,5 @@
+# Only these files are uploaded to build the drill image. Never add secrets/ or anything else.
+/*
+!/Dockerfile
+!/drill.js
+!/.gcloudignore

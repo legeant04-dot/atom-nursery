@@ -34,7 +34,27 @@ gcloud run jobs execute atom-backup --region asia-southeast1 --wait --project=at
 
 ## กู้คืน
 
-ซ้อมกู้ 1 ครั้งก่อนคืนย้าย (ภายใน 24 พ.ย.) — **กู้ไม่ได้ = ไม่ย้าย** · ขั้นตอนจะเขียนเพิ่มที่นี่หลังซ้อมจริง
+ซ้อมกู้ 1 ครั้งก่อนคืนย้าย (ภายใน 24 พ.ย.) — **กู้ไม่ได้ = ไม่ย้าย**
+
+### ซ้อมกู้ — Cloud Run Job `atom-restore-drill` (โค้ด `restore_drill/`)
+
+เปิด PostgreSQL 17 **ว่าง ๆ ในคอนเทนเนอร์ของงานเอง** → ดาวน์โหลดไฟล์สำรองล่าสุด (ตรวจ MD5) → `pg_restore --exit-on-error` (ผิดแม้ข้อเดียว = ไม่ผ่าน) → ทุกตาราง: นับแถว + ลายนิ้วมือ MD5 ของทุกแถว **เทียบกับ atom-prod** (อ่านอย่างเดียวใน transaction read only)
+ข้อมูลที่กู้อยู่แค่ใน `/tmp` ของงานนั้นและหายไปเมื่องานจบ — ไม่ลงเครื่องใคร ไม่แตะ staging · log มีแค่ชื่อตาราง + ตัวเลข
+
+```bash
+gcloud run jobs execute atom-backup --region asia-southeast1 --wait --project=atom-nursery --account=atomnursery.system@gmail.com
+gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait --project=atom-nursery --account=atomnursery.system@gmail.com
+gcloud logging read 'resource.labels.job_name="atom-restore-drill"' --limit 10 --freshness=30m --order=asc --format="value(textPayload)" --project=atom-nursery --account=atomnursery.system@gmail.com
+```
+
+- **รันทันทีหลังสำรอง ตอนไม่มีใครเขียน** (ซ้อมย้าย · คืนย้าย) — แถวที่เขียนหลังสำรองจะขึ้นเป็น "ต่าง" และรายงานบอกว่าเป็นเพราะอะไร
+- ไฟล์เฉพาะ: `--update-env-vars OBJECT=atom-prod/<ชื่อไฟล์>.dump` · กู้อย่างเดียวไม่เทียบ: `COMPARE=0`
+- บัญชี `atom-restore-drill@` — **อ่าน**ไฟล์ใน bucket ได้ (ลบ/เขียนไม่ได้) + อ่านรหัสลับ `uat-supabase-db-url`
+- ผ่าน = บรรทัด `✅ RESTORE DRILL PASSED: 60 ตาราง · N แถว · ตรงกับ atom-prod ทุกตาราง`
+
+### กู้จริง (ฐานเสีย/ข้อมูลหาย) — ยังไม่ได้ซ้อม
+
+ไฟล์ที่ซ้อมกู้ผ่านคือไฟล์ที่ใช้ได้ · ขั้นตอนกู้ลง Supabase จริง (ล้าง schema `public` → `pg_restore` → ตรวจ) **ยังไม่มีเครื่องมือและยังไม่ได้ซ้อม** — ทำได้บน atom-prod ระหว่างซ้อมย้าย เพราะ atom-prod ถูกล้างก่อนคืน D อยู่แล้ว
 
 ## แจ้งเตือน — เปลี่ยนอีเมล
 
@@ -49,4 +69,5 @@ Google Cloud Console (บัญชี atomnursery.system) → Monitoring → Ale
 ## บันทึก
 
 - 16 พ.ย. 2026 — สร้างครั้งแรก · ทดสอบสั่งเอง 1 รอบ + สั่งผ่านตัวตั้งเวลา: 60/60 ตาราง · MD5 ตรง · ฐานยังว่าง (ไฟล์ ~260 KB) · พบว่า 2 รอบในนาทีเดียวชื่อไฟล์ชนกัน (รอบหลังถูกปฏิเสธเพราะห้ามเขียนทับ แต่นับเป็นล้ม) → เพิ่มวินาที + รหัสรอบในชื่อไฟล์
+- 17 พ.ย. 2026 — สร้างงานซ้อมกู้ `atom-restore-drill` · รอบแรกล้มที่ขั้นเตรียมของงานเอง (ติดตั้ง pgcrypto หลังลบ schema public) แก้แล้ว · รอบสอง **ผ่าน**: 60 ตาราง · กู้ 0.7 วินาที · ตรงกับ atom-prod ทุกตาราง (ฐานยังว่าง — รอบที่วัดผลจริงคือหลังย้ายข้อมูลวันซ้อม)
 - 16 พ.ย. 2026 — เพิ่มแจ้งเตือนอีเมล 2 แบบ + รอบ 14:00 · ทดสอบแจ้งเตือน ①: สั่งรอบที่ตั้งใจให้ล้ม (`MIN_TABLES=999`) → `BACKUP FAILED: dump has 60 tables, expected at least 999`
