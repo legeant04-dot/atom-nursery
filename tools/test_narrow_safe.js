@@ -64,6 +64,16 @@ console.log('\n1) ข้อมูลจำลองต้องกว้าง�
     narrow.checkinStudent.length > 0 && narrow.checkinStudent.length < full.checkinStudent.length / 10);
 }
 
+console.log('\n1b) 🔴 action ที่ต้องรู้ "วันสุดท้ายที่มาโรงเรียน" แคบไม่ได้ (พบจากข้อมูลจริง 17 พ.ย.)');
+{
+  /* absenceReport / absenceWatchCount count the days away AFTER the last check-in (ผอ. 15 Nov). On
+   * today's check-ins only, every child looks away since the beginning: the real school's badge read
+   * 0 to follow up where Apps Script said 1. This fixture has no absences, so section 2 cannot see it —
+   * the rule is pinned by name. Comments are stripped so a note naming it does not count as listing it. */
+  const declared = [...seg.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([a-zA-Z][a-zA-Z0-9]*): 1/g)].map(x => x[1]);
+  ['absenceWatchCount', 'absenceReport'].forEach(a => ok_(a + ' ไม่อยู่ในรายการแคบ', declared.indexOf(a) < 0));
+}
+
 console.log('\n2) 🔴 ทุก action ที่ประกาศว่าแคบได้ ต้องตอบเหมือนเดิมทุกบทบาท');
 {
   ok_('อ่านรายชื่อจาก server/host.js ได้ (' + DECLARED.length + ' ตัว)', DECLARED.length >= 25);

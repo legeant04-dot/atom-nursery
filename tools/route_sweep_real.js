@@ -30,6 +30,7 @@ const ROOT = path.join(__dirname, '..');
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? (argv[i + 1] || true) : d; };
 const FILE = arg('file', ''), FROM_DB = argv.includes('--from-db'), CODE = arg('tenant', '');
+const ONLY = String(arg('only', '') === true ? '' : arg('only', '')).split(',').filter(Boolean), DUMP = argv.includes('--dump');
 if ((!FILE && !FROM_DB) || !CODE) { console.error('usage: --file <export.json> --tenant <code>   |   --from-db --tenant <code>'); process.exit(2); }
 
 const SECRET = 'sweep-' + crypto.randomBytes(16).toString('hex');
@@ -105,7 +106,11 @@ const norm = r => { if (!r || typeof r !== 'object') return r; const o = Object.
   /* ── callers, by rule ────────────────────────────────────────────────────────────────────── */
   const staff = rowsOf('HR', 'STAFF').filter(r => String(r.Status || 'ACTIVE').toUpperCase() === 'ACTIVE')
     .sort((a, b) => String(a.StaffID).localeCompare(String(b.StaffID)));
-  const students = rowsOf('MAIN', 'STUDENTS').filter(r => String(r.Status || '').toUpperCase() === 'ACTIVE')
+  /* still at school: ACTIVE and no last day before today — a child past EndDate has the family's access
+   * CLOSED (Code.gs parentAccessClosed_), so a parent chosen through them is refused on both sides and
+   * sweeps nothing (real-data run 2026-11-17: the first linked child had left) */
+  const students = rowsOf('MAIN', 'STUDENTS').filter(r => String(r.Status || '').toUpperCase() === 'ACTIVE' &&
+      !(r.EndDate && String(r.EndDate).slice(0, 10) < TODAY))
     .sort((a, b) => String(a.StudentID).localeCompare(String(b.StudentID)));
   const links = rowsOf('MAIN', 'USER_LINKS'), parents = rowsOf('MAIN', 'PARENTS');
   const admin = staff.find(r => r.Role === 'Admin');
@@ -187,7 +192,7 @@ const norm = r => { if (!r || typeof r !== 'object') return r; const o = Object.
   const results = []; let same = 0, diff = 0, bothErr = 0;
   for (const [label, w] of CALLERS) {
     console.log('\n── ' + label);
-    for (const action of READS) {
+    for (const action of (ONLY.length ? ONLY : READS)) {
       let a, b;
       try { a = norm(viaGas(action, JSON.parse(JSON.stringify(w.payload)), w.token)); } catch (e) { a = { ok: false, error: { code: 'HARNESS:' + String(e.message).slice(0, 60) } }; }
       try { b = norm(await viaHost(action, JSON.parse(JSON.stringify(w.payload)), w.token)); } catch (e) { b = { ok: false, error: { code: 'HOST:' + String(e.message).slice(0, 60) } }; }
@@ -198,6 +203,8 @@ const norm = r => { if (!r || typeof r !== 'object') return r; const o = Object.
       const tag = ok ? (errs ? '  =err ' : '  ok   ') : '  DIFF ';
       const codes = (a && a.ok === false ? ' A=' + a.error.code : '') + (b && b.ok === false ? ' B=' + b.error.code : '');
       console.log(tag + action + codes + (d ? '\n         ' + d : ''));
+      /* --dump: both full answers for a differing route, to secrets/export/ (local, gitignored) — for diagnosis, never printed */
+      if (DUMP && d) { try { fs.writeFileSync(path.join(ROOT, 'secrets', 'export', 'sweep_dump_' + action + '_' + label.replace(/[^a-zA-Z0-9฀-๿]/g, '') + '.json'), JSON.stringify({ A: a, B: b })); } catch (e) {} }
       results.push({ caller: label, action, same: ok, where: d || '', a: a && a.ok === false ? a.error.code : 'ok', b: b && b.ok === false ? b.error.code : 'ok' });
     }
   }

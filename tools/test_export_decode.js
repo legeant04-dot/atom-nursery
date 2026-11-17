@@ -59,5 +59,21 @@ const src = require('fs').readFileSync(path.join(__dirname, 'pg_migrate.js'), 'u
 ok_('…and main() stops on it before writing anything (dry or not)', /const raw = undecodedInstants\(plan, schema\);\s*\n\s*if \(raw\.length\) \{[\s\S]{0,600}process\.exit\(1\)/.test(src) &&
   src.indexOf('undecodedInstants(plan, schema)') < src.indexOf("await connect()"));
 
+console.log('\n3) tools/pg_migrate.js — a value the column type would ALTER stops the run (pg_diff_check cannot see it)');
+{
+  const fake = { t: { water: 'numeric', backup_date: 'date', start_time: 'time', ts: 'timestamptz', age: 'numeric' } };
+  const plan = [{ wb: 'MAIN', sheet: 'X', table: 't', cols: { Water: 'water', BackupDate: 'backup_date', StartTime: 'start_time', Ts: 'ts', Age: 'age' },
+    rows: [{ Water: 'น้อย', BackupDate: '2026-11-17 02:00:13', StartTime: '08:00', Ts: '2026-11-17 02:00:13', Age: '#NUM!' },
+           { Water: '', BackupDate: '2026-11-17', StartTime: 'สาย', Ts: '2026-11-17', Age: 12 }] }];
+  const L = M.lossyValues(plan, fake), by = w => L.find(x => x.where.endsWith('.' + w)) || {};
+  ok_('a word in a numeric column (DAILY_JOURNAL.Water — 2,088 real rows)', by('Water').n === 1);
+  ok_('a date-time in a `date` column (BACKUP_LOG.BackupDate — the time would be cut)', by('BackupDate').n === 1);
+  ok_('a word in a `time` column', by('StartTime').n === 1);
+  ok_('a timestamp column is NOT mistaken for a time column', !by('Ts').where);
+  ok_("a spreadsheet's own #NUM! is reported, not counted as a loss", by('Age').err === 1 && !by('Age').n);
+  ok_('…and main() stops on a loss before connecting', /const lossy = lossyValues\(plan, schema\);[\s\S]{0,900}if \(lost\.length\) \{[\s\S]{0,500}process\.exit\(1\)/.test(src) &&
+    src.indexOf('lossyValues(plan, schema)') < src.indexOf('await connect()'));
+}
+
 console.log('\n' + (fail ? 'FAILED' : 'PASSED') + ' ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

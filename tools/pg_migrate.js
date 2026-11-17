@@ -342,6 +342,36 @@ function undecodedInstants(plan, schema) {
   return out;
 }
 
+/* ── 🔴 A VALUE THE COLUMN TYPE WOULD CHANGE (real-data rehearsal, 2026-11-17) ──────────────────
+ * Refused values are caught elsewhere; these are worse — ACCEPTED and altered: a word in a numeric
+ * column becomes NULL (2,088 journals' Water), a date-time in a `date` column loses its time (312
+ * backup times). Nothing downstream can see it: pg_diff_check encodes the sheet side the same way
+ * before comparing, so NULL meets NULL and reads as equal. A spreadsheet's own error literal
+ * (#NUM!, #REF! …) is reported but does not stop the run — it was never a value. */
+const SHEET_ERROR = /^#(NUM!|REF!|VALUE!|N\/A|DIV\/0!|NAME\?|NULL!|ERROR!)$/;
+function lossyValues(plan, schema) {
+  const out = [];
+  for (const t of plan) {
+    for (const [k, pg] of Object.entries(t.cols)) {
+      const ty = String(schema[t.table][pg] || '').toLowerCase().split(/\s/)[0];
+      let n = 0, err = 0, why = '';
+      for (const r of t.rows) {
+        const v = r[k]; if (v === '' || v == null) continue;
+        const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        let bad = '';
+        if (ty === 'date' && /^\d{4}-\d\d-\d\d[ T]\d\d:\d\d/.test(s) && !/[ T]00:00(:00)?$/.test(s)) bad = 'วันที่+เวลา ในคอลัมน์ date (เวลาหาย)';
+        else if (/^time/.test(ty) && !/^timestamp/.test(ty) && !/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) bad = 'ไม่ใช่เวลา ในคอลัมน์ time (→ ว่าง)';
+        else if (/^(numeric|integer|bigint|smallint)/.test(ty) && !(typeof v === 'number' || /^\s*-?\d+(\.\d+)?\s*$/.test(s))) bad = 'ไม่ใช่ตัวเลข ในคอลัมน์ตัวเลข (→ ว่าง)';
+        else if (/^(date|timestamp)/.test(ty) && !/^\d{4}-\d\d-\d\d/.test(s)) bad = 'ไม่ใช่วันที่ ในคอลัมน์วันที่ (→ ว่าง)';
+        if (!bad) continue;
+        if (SHEET_ERROR.test(s.trim())) err++; else { n++; why = bad; }
+      }
+      if (n || err) out.push({ where: t.wb + '.' + t.sheet + '.' + k, type: ty, n, err, why: why || 'ค่าผิดพลาดของสูตรในชีต' });
+    }
+  }
+  return out;
+}
+
 /* ── A VALUE THE SHEET HOLDS, IN A COLUMN POSTGRES DECLARES ──────────────────────────────────────
  *
  * 🔴 EXPANDED BY PHASE 2.3 (2026-10-13). Running the suites against the real schema produced, in
@@ -476,6 +506,18 @@ async function main() {
     console.log('     ย้ายไฟล์นี้ = วันที่เลื่อนไป 1 วัน และเวลาหาย · ส่งออกใหม่ด้วย src/Export.gs ที่แก้แล้ว (2026-11-17)\n');
     process.exit(1);
   }
+  const lossy = lossyValues(plan, schema);
+  const errs = lossy.filter(x => x.err), lost = lossy.filter(x => x.n);
+  if (errs.length) {
+    console.log('\n  ⚠️  ค่าผิดพลาดของสูตรในชีต (จะเป็นค่าว่าง — ไม่เคยเป็นค่าจริง):');
+    errs.forEach(x => console.log('      · ' + x.where.padEnd(40) + String(x.err).padStart(6)));
+  }
+  if (lost.length) {
+    console.log('\n  🔴 หยุด — ค่าที่ชนิดคอลัมน์จะเปลี่ยนหรือทำให้หาย ' + lost.reduce((a, x) => a + x.n, 0) + ' ช่อง:');
+    lost.forEach(x => console.log('      · ' + x.where.padEnd(40) + x.type.padEnd(12) + String(x.n).padStart(6) + '  ' + x.why));
+    console.log('     แก้ชนิดคอลัมน์ใน tools/schema_inventory.js (SHEET_TYPE / NUMERIC_OTHER) แล้วสร้าง schema ใหม่\n');
+    process.exit(1);
+  }
 
   if (unknownTables.length) {
     console.log('\n  ⚠️  ชีตที่ไม่มีตารางรองรับ (ข้ามไป):');
@@ -533,5 +575,5 @@ async function main() {
   console.log('');
 }
 
-module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_, moneyColumns, undecodedInstants };
+module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_, moneyColumns, undecodedInstants, lossyValues };
 if (require.main === module) main().catch(e => { console.log('🔴 ' + e.message); process.exit(1); });

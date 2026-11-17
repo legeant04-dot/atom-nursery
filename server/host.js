@@ -64,7 +64,11 @@ const NARROW_SAFE = {
   listStaffGroups: 1, getPlans: 1, prepayTiers: 1, holidays: 1, bigCleaningDays: 1,
   getJournal: 1, journalStatus: 1, studentAlerts: 1, notifications: 1, holidayAttendList: 1,
   staffSelf: 1, myAttendanceToday: 1, myHolidayOTNext: 1, teacherClassAttendance: 1,
-  staffMissingCheckout: 1, myClassCover: 1, injuryAlerts: 1, absenceWatchCount: 1,
+  staffMissingCheckout: 1, myClassCover: 1, injuryAlerts: 1,
+  /* 🔴 NOT absenceWatchCount (removed 2026-11-17, real-data route sweep): since 15 Nov it counts only the
+   * days away AFTER a child's LAST check-in, so it needs check-in history — on today's check-ins alone the
+   * real school's badge read 0 to follow up where Apps Script said 1 (and 6 away where it said 4).
+   * test_narrow_safe's fixture has no absences, so both sides were 0 and it stayed green. */
   payments: 1, paymentSlips: 1, paymentLog: 1, prepayments: 1, studentCharges: 1, otDaily: 1,
   parentDue: 1, financeSummary: 1, payrollConfig: 1
 };

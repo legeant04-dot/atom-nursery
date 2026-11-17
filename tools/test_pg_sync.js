@@ -197,5 +197,24 @@ console.log('\n8) 📐 ทางเลือกเชิงออกแบบท
   ok_('ชื่อคอลัมน์ถูกใส่เครื่องหมายคำพูด (คำสงวน)', /'"' \+ n \+ '"'/.test(src));
 }
 
+console.log('\nแถวที่คีย์ซ้ำ · เวลา · ตัวเลข · แถวไม่มีคีย์ (ซ้อมย้ายด้วยข้อมูลจริง 17 พ.ย.)');
+{
+  const { diffTable: dt } = require('./pg_sync.js');
+  const C = { StudentID: 'student_id', Date: 'date', Time: 'time', Weight: 'weight' };
+  const T = { student_id: 'text', date: 'date', time: 'time', weight: 'numeric' };
+  // two weighings of one child on one day, in sheet order; Postgres hands them back unordered
+  const sheet = [{ StudentID: 'S1', Date: '2026-05-01', Time: '08:05', Weight: 12.5 }, { StudentID: 'S1', Date: '2026-05-01', Time: '16:40', Weight: 12.6 }];
+  const pg = [{ id: 'b', seq: 2, student_id: 'S1', date: '2026-05-01', time: '16:40:00', weight: '12.60' },
+              { id: 'a', seq: 1, student_id: 'S1', date: '2026-05-01', time: '08:05:00', weight: '12.50' }];
+  const d = dt(sheet, pg, C, ['StudentID', 'Date'], T, null);
+  ok_('🔴 สองแถวที่คีย์เดียวกัน จับคู่ตามลำดับ seq — ไม่รายงานว่าต่าง', !d.insert.length && !d.update.length && !d.del.length);
+  const d2 = dt(sheet.slice(0, 1), pg, C, ['StudentID', 'Date'], T, null);
+  ok_('...แถวที่สองที่หายจากชีต = ลบ 1 แถว (ไม่ใช่ถูกซ่อนเพราะคีย์เคยเห็นแล้ว)', d2.del.length === 1 && d2.del[0].id === 'b');
+  const d3 = dt(sheet, pg, C, ['StudentID', 'Time'], T, null);
+  ok_("เวลา '08:05' ในชีต = '08:05:00' จากฐาน ทั้งเป็นคีย์และเป็นค่า", !d3.insert.length && !d3.del.length && !d3.update.length);
+  const d4 = dt([{ StudentID: '', Date: '', Time: '', Weight: '' }], [{ id: 'z', seq: 1, student_id: null, date: null, time: null, weight: null }], C, ['StudentID', 'Date'], T, null);
+  ok_('แถวไม่มีคีย์ทั้งสองฝั่ง = นับว่าไม่มีคีย์ ไม่ใช่ "มีแต่ใน pg" ที่จะถูกลบ', d4.unkeyed === 2 && !d4.del.length && !d4.insert.length);
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

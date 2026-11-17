@@ -162,8 +162,11 @@ console.log('\n2) money is numeric, and the tool will not guess');
    * in the first draft: they are millilitres of milk and water a baby drank. A money type on a
    * child's feed is the same class of mistake as a float on a payslip, pointing the other way. */
   ['milk_total', 'water'].forEach(c => ok_(c + ' is NOT money — it is a baby’s feed', money.indexOf(c) < 0));
-  ok_('...and they are still numeric, because they are still numbers',
-    /"?milk_total"?\s+numeric,/.test(sql) && /"?water"?\s+numeric,/.test(sql));
+  /* 🔴 CORRECTED 2026-11-17 by the first rehearsal with real data: "water is millilitres" was a guess.
+   * DAILY_JOURNAL.Water is a WORD the teacher picks (app.js renders jt(j.Water)); 2,088 real journals
+   * would have become NULL in a numeric column. MilkTotal really is a number. */
+  ok_('...milk_total is numeric (a quantity) and water is TEXT (a word the teacher picks)',
+    /"?milk_total"?\s+numeric,/.test(sql) && /"?water"?\s+text,/.test(sql));
 }
 
 // ============================================================================================

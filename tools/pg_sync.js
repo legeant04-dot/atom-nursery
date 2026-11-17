@@ -119,6 +119,9 @@ function same(sheetVal, pgVal, type) {
    * every unticked checkbox in the school is reported as a change on every run, for ever, and the
    * sync writes rather than reports. (The sheet does not distinguish "no" from "not answered"; if
    * it ever needs to, that is a column change, not a comparison change.) */
+  /* a `time` is 'HH:mm' to the app (decodeCell_); the driver adds ':00' seconds — not a difference */
+  if (isTimeType(type) && a != null && b != null && /^\d{1,2}:\d{2}/.test(String(a)) && /^\d{1,2}:\d{2}/.test(String(b)))
+    return keyText(a, type) === keyText(b, type);
   if ((a === null || a === undefined) && /^boolean/.test(type || '')) return !b;
   if (a === null || a === undefined) return b === null || b === undefined || b === '';
   if (/^numeric/.test(type || '')) return Number(a) === Number(b);
@@ -135,25 +138,45 @@ function diffTable(sheetRows, pgRows, cols, key, types, mode) {
    * ('S-1','2026-10-13') cannot collide with ('S-12','026-10-13') — which is the sort of thing that
    * works for years and then merges two children's journals. */
   const parts = Array.isArray(key) ? key : [key];
-  const sheetKeyOf = row => parts.map(p => String(row[p] == null ? '' : row[p])).join('\u0000');
+  /* Both sides of a key in ONE text form per column type (keyText) — real-data rehearsal 2026-11-17:
+   * a `time` comes back from the driver as '08:05:00' while the sheet says '08:05', and a number as
+   * '12.50' against 12.5, so check-ins (keyed on Time) and every append-only log (keyed on all its
+   * columns) matched nothing and were reported as missing on both sides. */
+  const typeOf = p => types[cols[p] || snake(p)];
+  const sheetKeyOf = row => parts.map(p => keyText(row[p], typeOf(p))).join('\u0000');
   const pgKeyOf = r => parts.map(p => {
     const v = r[cols[p] || snake(p)];
-    if (v instanceof Date) return String(dateText(v, types[cols[p] || snake(p)]));
-    return String(v == null ? '' : v);
+    if (v instanceof Date) return String(dateText(v, typeOf(p)));
+    return keyText(v, typeOf(p));
   }).join('\u0000');
 
   const insert = [], update = [], del = [];
+  /* SEVERAL ROWS MAY SHARE A KEY in a table keyed by person + day (two weighings on one day, two
+   * check-ins in one minute — 33 + 12 rows in the real export, 2026-11-17). The first version kept
+   * only the LAST pg row per key, so the second sheet row was compared with the wrong one and the
+   * others were never compared at all. Now each key holds its rows in sheet order (seq) and they are
+   * paired in that order; what is left over on either side is a real difference. */
   const byKey = new Map();
-  pgRows.forEach(r => byKey.set(pgKeyOf(r), r));
+  [...pgRows].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0)).forEach(r => {
+    const k = pgKeyOf(r);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(r);
+  });
   const seen = new Set();
   let unkeyed = 0;
+  // a pg row whose key is empty cannot be matched either — counted beside the sheet's, never a DELETE
+  const blank = k => !k.replace(/\u0000/g, '');
+  if (byKey.has([...Array(parts.length)].map(() => '').join('\u0000'))) {
+    unkeyed += byKey.get([...Array(parts.length)].map(() => '').join('\u0000')).length;
+  }
 
   sheetRows.forEach(row => {
     const k = sheetKeyOf(row);
     // every part empty means the row cannot be matched to anything — counted, never guessed at
-    if (!k.replace(/\u0000/g, '')) { unkeyed++; return; }
+    if (blank(k)) { unkeyed++; return; }
     seen.add(k);
-    const existing = byKey.get(k);
+    const queue = byKey.get(k);
+    const existing = queue && queue.length ? queue.shift() : null;
     if (!existing) { insert.push(row); return; }
     if (mode === 'APPEND_ONLY') return;                 // present already; a log is never rewritten
     const changed = Object.keys(cols).filter(sheetCol =>
@@ -162,8 +185,19 @@ function diffTable(sheetRows, pgRows, cols, key, types, mode) {
   });
   /* 🔴 and a log is never shortened. A row missing from the sheet would otherwise become a DELETE,
    * so trimming a spreadsheet would erase the record of having trimmed it. */
-  if (mode !== 'APPEND_ONLY') byKey.forEach((r, k) => { if (!seen.has(k)) del.push({ id: r.id, key: k }); });
+  /* every pg row left unpaired is a deletion — including the third row of a key the sheet has twice */
+  if (mode !== 'APPEND_ONLY') byKey.forEach((rows, k) => { if (!blank(k)) rows.forEach(r => del.push({ id: r.id, key: k })); });
   return { insert, update, del, unkeyed };
+}
+
+/** One value as key text, the same for a sheet cell and a driver value of that column type. */
+const isTimeType = t => /^time/.test(t || '') && !/^timestamp/.test(t || '');
+function keyText(v, type) {
+  if (v == null) return '';
+  const s = String(v);
+  if (isTimeType(type) && /^\d{1,2}:\d{2}/.test(s)) return s.padStart(5, '0').slice(0, 5);     // 'HH:mm' — what decodeCell_ gives the app
+  if (/^(numeric|integer|bigint|smallint|real|double)/.test(type || '') && s.trim() !== '' && isFinite(Number(s))) return String(Number(s));
+  return s;
 }
 
 /** A Date from the driver, rendered the way the sheet holds it — the school's calendar, not UTC. */

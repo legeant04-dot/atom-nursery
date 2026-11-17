@@ -264,7 +264,10 @@ const NOT_MONEY = new Set([
  * look numeric in the same way and must not become numeric(12,2) by accident. */
 const NUMERIC_OTHER = new Set(['Weight', 'Height', 'Hours', 'OTHours', 'Days', 'LateMinutes', 'Minutes',
   'Count', 'Qty', 'Priority', 'AgeMonth', 'ItemNo', 'BillingDay', 'Ms', 'Batch', 'Year',
-  'MilkTotal', 'Water',
+  /* 🔴 NOT 'Water' (removed 2026-11-17, first rehearsal with real data): DAILY_JOURNAL.Water is a WORD
+   * the teacher picks (app.js shows jt(j.Water)), not a measurement — 2,088 of the school's journals
+   * would have become NULL in a numeric column. It stays in NOT_MONEY, so it is text. */
+  'MilkTotal',
   /* counts and limits on the payslip — a number, never an amount (2026-10-09). DaysWorked decides a
    * daily-rate salary and LeaveLimit decides whether leave is unpaid, so they are not decorative:
    * they were `text`, and 'text' compares as a string the moment anyone sorts or sums it. */
@@ -499,7 +502,19 @@ const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', '
    * YES/NO tick boxes (#pSS checked → setPayrollConfig writes true; Payroll.gs pcBool_ reads 'YES'/'TRUE'/'1'). A
    * numeric column refuses true and stores NOTHING, so every teacher with ประกันสังคม ticked would have been paid
    * ฿750 too much the first month on Postgres, with the box showing unticked. Found by test_fast_route_payroll_live. */
-  'PAYROLL_CONFIG.SocialSecurityDeduct': 'boolean', 'PAYROLL_CONFIG.TaxDeduct': 'boolean' };
+  'PAYROLL_CONFIG.SocialSecurityDeduct': 'boolean', 'PAYROLL_CONFIG.TaxDeduct': 'boolean',
+  /* 🔴 FIRST REHEARSAL WITH REAL DATA (2026-11-17): four more "…Date" columns that hold a MOMENT —
+   * 312 backup times, 34+7 insurance form times, 1 account time — and a `date` column would have kept
+   * the day and dropped the time, silently (pg_migrate's lossy-value guard now stops on that). */
+  'BACKUP_LOG.BackupDate': 'timestamptz', 'INSURANCE_PCHI.FilledDate': 'timestamptz',
+  'INSURANCE_PCHI.UpdatedDate': 'timestamptz', 'USERS.CreatedDate': 'timestamptz',
+  /* 🔴 REAL-DATA ROUTE SWEEP (2026-11-17): the sheet holds true/false, the names do not start with a
+   * boolean prefix, so they were `text` — and the string 'false' is TRUTHY. The admin's student form
+   * ticks "มีประกัน" with `s.InsuranceHas ? 'checked'`, so every one of the 56 children would have shown
+   * insured (and been saved so), and Engine.gs insurance `onFile` = !!s.InsuranceHas the same. Recurring
+   * is read through holRec() today, but a value the sheet holds as a boolean comes back as one. */
+  'STUDENTS.InsuranceHas': 'boolean', 'HOLIDAYS.Recurring': 'boolean',
+  'CLASSES.Capacity': 'numeric' };
 
 function sqlType(col, sheet) {
   if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];
