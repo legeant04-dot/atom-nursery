@@ -14,15 +14,15 @@
 
 | | ขั้น | ทำ | ผ่านเมื่อ | ⏱ |
 |---|---|---|---|---|
-| ☐ | **R0 เช็กก่อนเริ่ม** | ระบบจริงไม่มี error ค้าง · สำรองทุกคืนรอบล่าสุด `ok=True tables=60` (`docs/BACKUP.md`) · `node tools/run_dbpg_parity.js` เขียวแล้ว (17 พ.ย. 95/95) · atom-prod มี 60 ตาราง **และว่าง** — `ATOM_PG_ENV=atom-prod.env node tools/pg_wipe_uat_copy.js` ต้องขึ้น `tenant: (ไม่มี) · 0/60` | ครบ | |
-| ☐ | **R1 Export** | editor ของ**สคริปต์จริง** › `exportAllForMigration` › Run (อ่านอย่างเดียว) → ดาวน์โหลด JSON → `secrets/export/atom_export_R_<วันที่>.json` | ไฟล์ครบทุกชีต (R2 จะบอกถ้าขาด) · ไม่มี error | |
-| ☐ | **R2 Dry run** | `node tools/pg_migrate.js --file <ไฟล์> --dry --report secrets/export/money_R.md` | ไม่มีคอลัมน์หาย · ไม่มีค่าเกิน numeric(12,2) · รายงานเงินออก | |
-| ☐ | **R3 ย้ายจริงลง atom-prod** | `ATOM_PG_ENV=atom-prod.env node tools/pg_migrate.js --file <ไฟล์> --tenant atom --create-tenant "อะตอม เนอสเซอรี่" --name-en "Atom Nursery" --report secrets/export/money_R.md` · tenant id พิมพ์ออกมา (R7 หาเองไม่ต้องจด) | จบไม่มี error · ตัวเลขแต่ละตารางตรงกับ R2 | |
-| ☐ | **R4 ตรวจว่าตรง** | `ATOM_PG_ENV=atom-prod.env node tools/pg_diff_check.js --file <ไฟล์>` | **diff ว่าง** | |
-| ☐ | **R5 ทดสอบ route บนข้อมูลจริง** | `ATOM_PG_ENV=atom-prod.env node tools/route_sweep_real.js --file <ไฟล์> --tenant atom` — ทุก route อ่านของแอป (33 ตัวจาก `FAST_ACTIONS`) × แอดมิน · ครู · หัวหน้าครู · ผู้ปกครอง (คนจริงจากข้อมูล เลือกตามกฎ) · ฝั่ง A = Apps Script บนข้อมูลใน export (ในเครื่อง) · ฝั่ง B = เซิร์ฟเวอร์ใหม่บน atom-prod · พิมพ์แค่ชื่อ route + ตำแหน่งที่ต่าง (ไม่พิมพ์ข้อมูล) · ผลละเอียด → `secrets/export/route_sweep_<วันที่>.json` | **ไม่ตรง 0** · `🔒 ฐานข้อมูลไม่ถูกเปลี่ยน` · ครบ 4 บทบาท (ถ้าขาดบทบาทไหน จดไว้) | |
-| ☐ | **R6 สำรอง + ซ้อมกู้** | `gcloud run jobs execute atom-backup --region asia-southeast1 --wait` แล้ว**ทันที** `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait` · อ่านผลตาม `docs/BACKUP.md` "ซ้อมกู้" | `✅ RESTORE DRILL PASSED` · 60 ตาราง · **ตรงกับ atom-prod ทุกตาราง** · จดเวลากู้ | |
+| ✅ 17/11 | **R0 เช็กก่อนเริ่ม** | ระบบจริงไม่มี error ค้าง · สำรองทุกคืนรอบล่าสุด `ok=True tables=60` (`docs/BACKUP.md`) · `node tools/run_dbpg_parity.js` เขียวแล้ว (17 พ.ย. 95/95) · atom-prod มี 60 ตาราง **และว่าง** — `ATOM_PG_ENV=atom-prod.env node tools/pg_wipe_uat_copy.js` ต้องขึ้น `tenant: (ไม่มี) · 0/60` | ครบ | |
+| ✅ 17/11 | **R1 Export** | editor ของ**สคริปต์จริง** › `exportAllForMigration` › Run (อ่านอย่างเดียว) → ดาวน์โหลด JSON → `secrets/export/atom_export_R_<วันที่>.json` | ไฟล์ครบทุกชีต (R2 จะบอกถ้าขาด) · ไม่มี error | |
+| ✅ 17/11 | **R2 Dry run** | `node tools/pg_migrate.js --file <ไฟล์> --dry --report secrets/export/money_R.md` | ไม่มีคอลัมน์หาย · ไม่มีค่าเกิน numeric(12,2) · รายงานเงินออก | |
+| ✅ 17/11 | **R3 ย้ายจริงลง atom-prod** | `ATOM_PG_ENV=atom-prod.env node tools/pg_migrate.js --file <ไฟล์> --tenant atom --create-tenant "อะตอม เนอสเซอรี่" --name-en "Atom Nursery" --report secrets/export/money_R.md` · tenant id พิมพ์ออกมา (R7 หาเองไม่ต้องจด) | จบไม่มี error · ตัวเลขแต่ละตารางตรงกับ R2 | |
+| ✅ 17/11 | **R4 ตรวจว่าตรง** | `ATOM_PG_ENV=atom-prod.env node tools/pg_diff_check.js --file <ไฟล์>` | **diff ว่าง** | |
+| ✅ 17/11 | **R5 ทดสอบ route บนข้อมูลจริง** | `ATOM_PG_ENV=atom-prod.env node tools/route_sweep_real.js --file <ไฟล์> --tenant atom` — ทุก route อ่านของแอป (33 ตัวจาก `FAST_ACTIONS`) × แอดมิน · ครู · หัวหน้าครู · ผู้ปกครอง (คนจริงจากข้อมูล เลือกตามกฎ) · ฝั่ง A = Apps Script บนข้อมูลใน export (ในเครื่อง) · ฝั่ง B = เซิร์ฟเวอร์ใหม่บน atom-prod · พิมพ์แค่ชื่อ route + ตำแหน่งที่ต่าง (ไม่พิมพ์ข้อมูล) · ผลละเอียด → `secrets/export/route_sweep_<วันที่>.json` | **ไม่ตรง 0** · `🔒 ฐานข้อมูลไม่ถูกเปลี่ยน` · ครบ 4 บทบาท (ถ้าขาดบทบาทไหน จดไว้) | |
+| ✅ 17/11 | **R6 สำรอง + ซ้อมกู้** | `gcloud run jobs execute atom-backup --region asia-southeast1 --wait` แล้ว**ทันที** `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait` · อ่านผลตาม `docs/BACKUP.md` "ซ้อมกู้" | `✅ RESTORE DRILL PASSED` · 60 ตาราง · **ตรงกับ atom-prod ทุกตาราง** · จดเวลากู้ | |
 
-| ☐ | **R6b ซ้อมกู้จริงลง atom-prod** | ต่อจาก R6 ทันที (ยังไม่มีใครใช้): `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait --update-env-vars MODE=target,CONFIRM=restore-into-atom-prod-2026-11-18` → แล้ว `ATOM_PG_ENV=atom-prod.env node tools/pg_sync_schema.js` + `pg_diff_check` (R4) ซ้ำ | `✅ RESTORE INTO atom-prod PASSED` · sync 0 ทุกข้อ · diff ว่าง · **จดเวลากู้ = RTO จริง** | |
+| ✅ 17/11 | **R6b ซ้อมกู้จริงลง atom-prod** | ต่อจาก R6 ทันที (ยังไม่มีใครใช้): `gcloud run jobs execute atom-restore-drill --region asia-southeast1 --wait --update-env-vars MODE=target,CONFIRM=restore-into-atom-prod-2026-11-18` → แล้ว `ATOM_PG_ENV=atom-prod.env node tools/pg_sync_schema.js` + `pg_diff_check` (R4) ซ้ำ | `✅ RESTORE INTO atom-prod PASSED` · sync 0 ทุกข้อ · diff ว่าง · **จดเวลากู้ = RTO จริง** | |
 
 > R6 ทำก่อนเปิด UAT (R7) เพราะต้องเทียบตอนไม่มีใครเขียน · **กู้ไม่ผ่าน = ไม่ย้าย** (ผอ. 16/11)
 
@@ -30,16 +30,32 @@
 
 | | ขั้น | ทำ | ใคร | ผ่านเมื่อ | ⏱ |
 |---|---|---|---|---|---|
-| ☐ | **R7a โค้ดล่าสุดขึ้น UAT** | ① deploy `atom-fast-uat` ใหม่จาก golive (คืน 17 พ.ย. แก้ `server/host.js` absenceWatchCount + ชนิดคอลัมน์ใน `docs/schema/001_init.sql`) ② `clasp push` + deploy golive ไปโปรเจ็กต์ Apps Script UAT (`src/PgSchema.gs` เปลี่ยน) | ผม | revision ใหม่ขึ้น · UAT `ping` ตอบ | |
-| ☐ | **R7 ต่อ UAT กับข้อมูล** | ① `ATOM_PG_ENV=atom-prod.env node tools/uat_wire.js --all-staff --parent-of "เลอา"` (ผู้ทดสอบตาม ผอ. 17/11 = ครูทุกคนในระบบ + Admin + ผอ. + คุณแม่เลอา · แผนก่อน — ดูว่าทุกคน ✓ · ใครยังไม่เคยเข้าแอปด้วย LINE จะขึ้น ✗) → แก้ชื่อที่ ✗ → ใส่ `--apply`: ตั้ง `atom-fast-uat` (TENANT_ID · LINE_ALLOW · min-instances 1) + build/deploy เว็บ UAT + ตรวจ ② **ผอ./คุณ** วาง Script Properties ตามที่เครื่องมือพิมพ์ใน Apps Script UAT — `DB_BACKEND=pg` **เป็นข้อสุดท้าย** | ผม · คุณ/ผอ. (Script Properties) | เครื่องมือขึ้น ✓ ทุกข้อ · ตรวจ LINE ในแอป UAT แสดง "ส่งเฉพาะผู้ทดสอบ N คน" | |
-| ☐ | **R8 ล็อกอินทดสอบ 1 ครั้ง** | มือถือผู้ทดสอบ 1 เครื่อง → เว็บ UAT → LINE → หน้าแรกเห็นข้อมูลจริงของตัวเอง · ป้ายแดง "UAT" | ผม + ผู้ทดสอบ 1 คน | เห็นข้อมูลถูกคน | |
+| ✅ 18/11 | **R7a โค้ดล่าสุดขึ้น UAT** | ① deploy `atom-fast-uat` ใหม่จาก golive (คืน 17 พ.ย. แก้ `server/host.js` absenceWatchCount + ชนิดคอลัมน์ใน `docs/schema/001_init.sql`) ② `clasp push` + deploy golive ไปโปรเจ็กต์ Apps Script UAT (`src/PgSchema.gs` เปลี่ยน) | ผม | revision ใหม่ขึ้น · UAT `ping` ตอบ | |
+| ✅ 18/11 | **R7 ต่อ UAT กับข้อมูล** | ① `ATOM_PG_ENV=atom-prod.env node tools/uat_wire.js --all-staff --parent-of "เลอา"` (ผู้ทดสอบตาม ผอ. 17/11 = ครูทุกคนในระบบ + Admin + ผอ. + คุณแม่เลอา · แผนก่อน — ดูว่าทุกคน ✓ · ใครยังไม่เคยเข้าแอปด้วย LINE จะขึ้น ✗) → แก้ชื่อที่ ✗ → ใส่ `--apply`: ตั้ง `atom-fast-uat` (TENANT_ID · LINE_ALLOW · min-instances 1) + build/deploy เว็บ UAT + ตรวจ ② **ผอ./คุณ** วาง Script Properties ตามที่เครื่องมือพิมพ์ใน Apps Script UAT — `DB_BACKEND=pg` **เป็นข้อสุดท้าย** | ผม · คุณ/ผอ. (Script Properties) | เครื่องมือขึ้น ✓ ทุกข้อ · ตรวจ LINE ในแอป UAT แสดง "ส่งเฉพาะผู้ทดสอบ N คน" | |
+| ✅ 18/11 | **R8 ล็อกอินทดสอบ 1 ครั้ง** | มือถือผู้ทดสอบ 1 เครื่อง → เว็บ UAT → LINE → หน้าแรกเห็นข้อมูลจริงของตัวเอง · ป้ายแดง "UAT" | ผม + ผู้ทดสอบ 1 คน | เห็นข้อมูลถูกคน | |
 | ✅ 18/11 | **R9 ซ้อมถอย (P8)** | บนโปรเจ็กต์ **UAT** เท่านั้น: ① Drive › ทำสำเนาชีตหลัก + HR ของจริง ตั้งชื่อ `REHEARSE-R-` · ตั้ง `WB_MAIN_ID`/`WB_HR_ID` ของ**สคริปต์ UAT** ไปที่สำเนา ② เขียนรายการทดสอบ 3 อย่างผ่านแอป UAT (เช็คอิน · ใบลา · OT) ③ `freezeWrites()` → `rollbackToSheets()` (รันซ้ำจนจบ) → อ่านรายงาน → `rollbackActivate()` → `unfreezeWrites()` ④ ตรวจว่า 3 รายการอยู่ในชีตสำเนา ⑤ `rollbackUndoActivate()` กลับ Postgres · **จับเวลา ① freeze → ③ unfreeze** | ผม | รายงาน 0 ไม่ตรง · 3 รายการครบ · **≤ 10 นาที** | คัดลอก 58/58 · 71,358 แถว · รอบแรกปฏิเสธ 4,054 ช่อง (Sheets แปลง `2026-11`→วันที่, `15:25`→`15:25:00`, GPS 17→15 หลัก) → `rbCell_` ใส่ `'` → รอบสองตรงทุกช่อง · activate ✓ · เช็คอิน+ใบลาอยู่ในสำเนา ✓ · undo ✓ แต่ Postgres ยังแช่แข็ง (unfreeze ไปลงสำเนา) → undo รายงาน `postgresFrozen` แล้ว · รอบสอง reset→unfreeze ~5–8 นาที · OT ข้าม (ยังไม่ถึงเวลารับกลับ — ทดสอบใน UAT) |
 | ☐ | **R10 ผอ. อ่านรายงานเงิน** (เย็น) | `secrets/export/money_R.md` — ส่งทางที่ปลอดภัย (ไม่ใช่ LINE/แชต) หรือเปิดให้ดูบนเครื่อง · ทุกบรรทัดที่ยอดเปลี่ยนจากการปัดทศนิยม ผอ. ต้องยอมรับ | **ผอ.** | ผอ. ยอมรับทุกบรรทัด | |
-| ☐ | **R11 สรุป** | เวลาจริงทุกขั้น → `MOVE_NIGHT_RUNBOOK.md` (ปรับเวลาคืน D) · ผลลง `docs/WORKLOG.md` (ไม่มีชื่อ/ยอดรายคน) · ROLLOUT_PLAN P7/P8 ✅ | ผม | | |
+| ✅ 18/11 | **R11 สรุป** | เวลาจริงทุกขั้น → `MOVE_NIGHT_RUNBOOK.md` (ปรับเวลาคืน D) · ผลลง `docs/WORKLOG.md` (ไม่มีชื่อ/ยอดรายคน) · ROLLOUT_PLAN P7/P8 ✅ | ผม | | |
 
 > หลัง R9 ข้อมูลทดสอบ 3 รายการค้างใน atom-prod — ไม่เป็นไร atom-prod ถูก**ล้างให้ว่างก่อนคืน D** (`MOVE_NIGHT_RUNBOOK` ก่อนคืน D)
 
 ---
+
+## 🧪 วันที่ 2 — 18 พ.ย. (R7a–R9 ผ่าน · R10 รอ ผอ.)
+
+| ขั้น | ผล |
+|---|---|
+| R7a | ✅ `atom-fast-uat` deploy ใหม่ (test_cloud_run 69/69) · Apps Script UAT รุ่น golive |
+| R7 | ✅ ผู้ทดสอบ 12 LINE ID (ครู 8 · Admin 2 · Observer 1 · คุณแม่เลอา) · LINE `allow` · min-instances 1 · เว็บ UAT ชี้ UAT ทั้ง FAST_URL และ LIFF |
+| R8 | ✅ ล็อกอินได้ · ป้าย UAT · ข้อมูลถูกคน · "ส่งเฉพาะผู้ทดสอบ 12 คน" · เส้นเร็วตอบ 0.28–0.70 วิ — **หลังแก้ข้อ 1 ด้านล่าง** |
+| R9 | ✅ คัดลอก 58/58 ตาราง 71,358 แถว · รอบสอง (reset → unfreeze) ≈ 5–8 นาที (เป้า ≤ 10) · เช็คอิน + ใบลาที่เขียนบน Postgres อยู่ในสำเนาครบ · OT ข้าม (ยังไม่ถึงเวลารับกลับ — ทดสอบใน UAT) |
+
+**สิ่งที่ข้อมูลจริงเจอ และแก้แล้ว** (ข้อมูลปลอม 97 ชุดผ่านทั้งหมดนี้ได้):
+1. 🔴 **Apps Script บน Postgres หมดเวลา 6 นาทีทุกคำขอ** ยกเว้น `ping` — `src/DbPg.gs` อ่านตารางทีละช่อง (หนึ่งคำสั่ง JDBC ต่อช่อง) และการจด audit_log ทุกคำขอโหลดทั้งตาราง (20,829 แถว) ก่อน → โหลดทั้งตารางเป็นคำสั่งเดียว (`json_agg` · atom-prod 20,830 แถว 0.64 วิ) · ต่อท้าย/นับแถว/ตัดแถวเก่าไม่โหลดตาราง · `test_dbpg_bigtable` นับจำนวนคำสั่ง (`72a2df9`) · **คืน D ขั้น 5a จะเจอแบบเดียวกันทุกคำขอถ้าไม่ได้ซ้อม**
+2. 🔴 **ถอยกลับถูกด่านปฏิเสธ 4,054 ช่อง** — Sheets แปลงข้อความเองตอนเขียน: `STUDENT_CHARGES.Month` "2026-11" → วันที่ (BILLING.Month ก็ชนิดเดียวกัน) · `ADMIN_INBOX.Date` "15:25" → "15:25:00" · GPS เป็นข้อความ 17 หลัก → 15 หลัก → `rbCell_` ใส่ `'` นำหน้า · ไม่ผ่อนเกณฑ์ตรวจ (`25f6032`)
+3. 🔴 **หลัง `rollbackUndoActivate` Postgres ยังแช่แข็ง** — `unfreezeWrites` รันตอนแอปอยู่บนสำเนา จึงเปิดแค่ชีตสำเนา → undo รายงาน `postgresFrozen` + บอกให้รันซ้ำ · รันบุ๊กคืน D เพิ่มขั้นนี้
+4. ⚠️ ถอยจริงต้อง**ปิดเส้นเร็ว Cloud Run ด้วย** (ไม่งั้นหน้าแรกยังอ่าน Postgres) — เพิ่มในรันบุ๊กคืน D แล้ว
+5. 🔒 รหัสผ่านฐานข้อมูล atom-prod ติดอยู่ในภาพหน้าจอที่ส่งในแชต → **ต้องเปลี่ยนก่อนคืน D** (อยู่ในรายการ "ก่อนคืน D" แล้ว)
 
 ## 🧪 ซ้อมด้วยข้อมูลจริง — 17 พ.ย. คืน (R0–R6b ผ่าน)
 
