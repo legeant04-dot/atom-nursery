@@ -280,22 +280,39 @@ function pgSheet_(wb, name, def) {
   var cols = def.c;                                       // [[sheetCol, pgCol, type], …]
   var hdr = cols.map(function (c) { return c[0]; });
   var rows = null;                                        // [{ id, vals: [...] }] in seq order
+  var count = null;                                       // size of a table not loaded (see size)
   var load = function () {
     if (rows && !PG_.noCache) return rows;
     pgCacheVers_();                                       // the versions FIRST — see CACHE VERSIONS above
-    var sql = 'select "id"::text,' + cols.map(function (c) { return pgQ_(c[1]) + '::text'; }).join(',') +
-      ' from ' + pgQ_(def.t) + ' where "tenant_id" = ?::uuid order by "seq"';
+    /* 🔴 18 Nov, UAT on the real data: this read one cell per JDBC call. Apps Script pays a few ms for
+     * every call, so AUDIT_LOG (20,829 rows × 6) took longer than the 6-minute limit and every request
+     * timed out. The whole table now comes back as ONE text value — a JSON array of text arrays, the
+     * same strings getString returned (array[] has no 100-argument limit; json_build_array does). */
+    var sql = 'select coalesce(json_agg(array["id"::text,' + cols.map(function (c) { return pgQ_(c[1]) + '::text'; }).join(',') +
+      '] order by "seq"), \'[]\')::text from ' + pgQ_(def.t) + ' where "tenant_id" = ?::uuid';
     var st = pgConn_().prepareStatement(sql); st.setString(1, PG_.tenant);
-    var rs = st.executeQuery(); rows = [];
-    while (rs.next()) {
+    var rs = st.executeQuery(); rs.next(); var all = JSON.parse(rs.getString(1)); rs.close(); st.close();
+    rows = all.map(function (a) {
       var vals = [];
-      for (var i = 0; i < cols.length; i++) vals.push(pgDecode_(rs.getString(i + 2), cols[i][2]));
-      rows.push({ id: rs.getString(1), vals: vals });
-    }
-    rs.close(); st.close();
+      for (var i = 0; i < cols.length; i++) vals.push(pgDecode_(a[i + 1], cols[i][2]));
+      return { id: a[0], vals: vals };
+    });
+    count = rows.length;
     return rows;
   };
   var colIdx = function (c) { return c - 1; };            // 1-based sheet column → index into hdr
+
+  /* 🔴 18 Nov, UAT on the real data: appendObject_ asks getLastRow() after every append, and that
+   * used to load() the WHOLE table. AUDIT_LOG is 20,829 rows; Apps Script reads JDBC one cell at a
+   * time, so logging one line took longer than the 6-minute limit and every request timed out.
+   * The size of a table nobody has read is a count(*), and an append never needs the rows. */
+  var size = function () {
+    if (rows && !PG_.noCache) return rows.length;
+    if (count !== null && !PG_.noCache) return count;
+    var st = pgConn_().prepareStatement('select count(*)::text from ' + pgQ_(def.t) + ' where "tenant_id" = ?::uuid');
+    st.setString(1, PG_.tenant); var rs = st.executeQuery(); rs.next(); count = Number(rs.getString(1)); rs.close(); st.close();
+    return count;
+  };
 
   var insert = function (vals) {
     var names = [], marks = [], params = [];
@@ -336,24 +353,38 @@ function pgSheet_(wb, name, def) {
     __pg: true,
     getName: function () { return name; },
     getSheetName: function () { return name; },
-    getLastRow: function () { return load().length ? load().length + 1 : 1; },
+    getLastRow: function () { return size() ? size() + 1 : 1; },
     getLastColumn: function () { return hdr.length; },
     getMaxColumns: function () { return hdr.length; },
-    getMaxRows: function () { return load().length + 1; },
+    getMaxRows: function () { return size() + 1; },
     getFrozenRows: function () { return 1; },
     setFrozenRows: function () { return sheet; },
     getDataRange: function () { return sheet.getRange(1, 1, sheet.getLastRow(), hdr.length); },
     getRange: function (r, c, nr, nc) { return pgRange_(sheet, r, c, nr || 1, nc || 1); },
     appendRow: function (arr) {
       var vals = hdr.map(function (_, i) { return arr[i] === undefined ? '' : arr[i]; });
-      load().push({ id: insert(vals), vals: vals });
+      var id = insert(vals);
+      if (rows && !PG_.noCache) rows.push({ id: id, vals: vals });   // loaded: keep the copy in step
+      else if (count !== null) count++;                              // not loaded: never load just to append
       return sheet;
     },
     deleteRow: function (r) {
       var i = r - 2; if (i < 0 || i >= load().length) return sheet;
       remove(rows[i]); rows.splice(i, 1); return sheet;
     },
-    deleteRows: function (r, n) { for (var k = 0; k < (n || 1); k++) sheet.deleteRow(r); return sheet; },
+    deleteRows: function (r, n) {
+      n = n || 1;
+      /* the oldest n rows of a table nobody has read (perfTrim_ at its 20,000 cap): one statement,
+       * not a load of the whole table and n deletes */
+      if (r === 2 && !(rows && !PG_.noCache)) {
+        var st = pgConn_().prepareStatement('delete from ' + pgQ_(def.t) + ' where "id" in (select "id" from ' + pgQ_(def.t) +
+          ' where "tenant_id" = ?::uuid order by "seq" limit ?::int)');
+        st.setString(1, PG_.tenant); st.setString(2, String(n)); st.executeUpdate(); st.close();
+        count = null; rows = null; pgDirty_(name);
+        return sheet;
+      }
+      for (var k = 0; k < n; k++) sheet.deleteRow(r); return sheet;
+    },
     // used by writeRows_/ensureColumns_/backup code paths that are no-ops on a table
     deleteColumns: function () { return sheet; }, clear: function () { return sheet; },
     // ---- the grid, as Sheets presents it -----------------------------------------------------
@@ -369,6 +400,12 @@ function pgSheet_(wb, name, def) {
           values[i].forEach(function (name2) {
             if (name2 !== '' && hdr.indexOf(String(name2)) < 0) PG_.unknown[wb + ':' + name + '.' + name2] = 1;
           });
+          continue;
+        }
+        if (!(rows && !PG_.noCache) && r === size() + 2) {  // appending to a table nobody has read (PERF_LOG)
+          var av = hdr.map(function () { return ''; });
+          values[i].forEach(function (v, j) { var k = colIdx(c0 + j); if (k < hdr.length) av[k] = v; });
+          insert(av); if (count !== null) count++;
           continue;
         }
         load();

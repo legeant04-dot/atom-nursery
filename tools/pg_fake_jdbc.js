@@ -97,14 +97,18 @@ module.exports = function makeFakeJdbc(g, store, props) {
       api.versions[p[1]] = (api.versions[p[1]] || 0) + 1;
       return null;
     }
-    if ((m = /^select "id"::text,(.*) from "(\w+)" where "tenant_id" = \?::uuid order by "seq"$/.exec(sql))) {
+    if ((m = /^select count\(\*\)::text from "(\w+)" where "tenant_id" = \?::uuid$/.exec(sql))) {
+      return rs([[String(live(sheetFor(m[1]).sh).length)]]);   // getLastRow of a table nobody has read
+    }
+    /* the whole table as ONE text value (DbPg load, 18 Nov) — a JSON array of [id, col::text, …] */
+    if ((m = /^select coalesce\(json_agg\(array\["id"::text,(.*)\] order by "seq"\), '\[\]'\)::text from "(\w+)" where "tenant_id" = \?::uuid$/.exec(sql))) {
       const { def, sh } = sheetFor(m[2]);
       const want = [...m[1].matchAll(/"(\w+)"::text/g)].map(x => x[1]);
       const h = hdrOf(sh);
-      return rs(live(sh).map(row => [idOf(row)].concat(want.map(pc => {
+      return rs([[JSON.stringify(live(sh).map(row => [idOf(row)].concat(want.map(pc => {
         const [sc, type] = def.cols[pc]; const i = h.indexOf(sc);
         return i < 0 ? null : toPgText(row[i], type);
-      }))));
+      }))))]]);
     }
     if ((m = /^insert into "(\w+)" \("tenant_id"(?:,(.*))?\) values \(\?::uuid(?:,(.*))?\) returning "id"::text$/.exec(sql))) {
       const { def, sh } = sheetFor(m[1]);
@@ -127,6 +131,12 @@ module.exports = function makeFakeJdbc(g, store, props) {
       const { sh } = sheetFor(m[1]);
       const at = sh.data.findIndex((r, i) => i > 0 && r && idOf(r) === p[0]);
       if (at > 0) sh.data.splice(at, 1);
+      return null;
+    }
+    if ((m = /^delete from "(\w+)" where "id" in \(select "id" from "\w+" where "tenant_id" = \?::uuid order by "seq" limit \?::int\)$/.exec(sql))) {
+      const { sh } = sheetFor(m[1]);                       // the oldest n rows (perfTrim_)
+      const drop = new Set(live(sh).slice(0, Number(p[1])).map(idOf));
+      for (let i = sh.data.length - 1; i > 0; i--) if (sh.data[i] && drop.has(idOf(sh.data[i]))) sh.data.splice(i, 1);
       return null;
     }
     throw new Error('fake jdbc: statement shape not understood — ' + sql.slice(0, 90));
