@@ -178,9 +178,22 @@ function rbCell_(v, type, textStyle) {
   if (v === '' || v === null || v === undefined) return '';
   var isDate = Object.prototype.toString.call(v) === '[object Date]';
   if (isDate && textStyle) return pgFmt_(v, textStyle);
-  if (typeof v === 'string' && pgBase_(type) === 'text' && /^(0\d+|\+\d+)$/.test(v)) return "'" + v;
+  if (typeof v === 'string' && pgBase_(type) === 'text' && (/^(0\d+|\+\d+)$/.test(v) || RB_DATEISH_.test(v) || rbLongNumber_(v))) return "'" + v;
   return v;
 }
+
+/* 🔴 R9 on the real data (18 Nov): a TEXT that looks like a date or a time is turned into a Date by
+ * Sheets on the way in — STUDENT_CHARGES.Month "2026-11" came back as 2026-11-01, ADMIN_INBOX.Date
+ * "2026-11-18 15:25" as 15:25:00. BILLING.Month is the same kind of column. The apostrophe keeps the
+ * cell exactly the text Postgres held, which is what the app read before the rollback. */
+/* …and a number-looking TEXT longer than Sheets keeps: Sheets stores 15 significant digits, so
+ * CHECKIN_STUDENT.GPS_Lat "13.78879670325946" (text — what the phone sent) came back 13.7887967032594.
+ * 4,036 cells on the real data. Kept as text, it is the exact value. */
+function rbLongNumber_(v) {
+  if (!/^[-+]?\d+(\.\d+)?$/.test(v)) return false;
+  return v.replace(/^[-+]?0*/, '').replace('.', '').replace(/^0+/, '').length > 15;
+}
+var RB_DATEISH_ = /^(\d{4}-\d{1,2}(-\d{1,2})?([ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?)?|\d{1,2}:\d{2}(:\d{2})?|\d{1,2}\/\d{1,2}(\/\d{2,4})?)$/;
 
 function rbActivate_() {
   var st = rbState_();
@@ -210,5 +223,13 @@ function rbUndoActivate_() {
   if (db !== null && db !== undefined) { p.setProperty('DB_BACKEND', db); p.deleteProperty('ROLLBACK_PREV_DB_BACKEND'); done.push('DB_BACKEND'); }
   if (typeof resetWorkbookCache_ === 'function') resetWorkbookCache_();
   PG_.on = null;
-  return { ok: done.length > 0, restored: done };
+  /* 🔴 R9 (18 Nov): unfreezeWrites ran while the app was on the COPY, so it cleared the copy's
+   * SCHOOL_CONFIG row — Postgres kept WriteFreeze=on from freezeWrites, and coming back here left the
+   * whole app refusing every save. Not cleared automatically (a real night may undo while frozen on
+   * purpose); said out loud instead. */
+  var fz = '';
+  try { if (typeof _configCache !== 'undefined') _configCache = null; fz = String(getConfig_('WriteFreeze', '') || ''); } catch (e) {}
+  var out = { ok: done.length > 0, restored: done, postgresFrozen: fz === 'on' };
+  if (fz === 'on') out.note = 'Postgres ยังปิดรับการเขียนอยู่ (WriteFreeze=on ตั้งแต่ freezeWrites) — รัน unfreezeWrites อีกครั้ง ไม่งั้นบันทึกอะไรไม่ได้';
+  return out;
 }

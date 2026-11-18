@@ -64,7 +64,12 @@ function world(opts) {
       rg.setValues = v => sv(v.map(row => row.map(x => {
         if (typeof x !== 'string') return x;
         if (x[0] === "'") return opts.sabotage ? '' : x.slice(1);   // sabotage: a Sheets that loses a value
-        return /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : x;
+        /* what real Sheets did in R9 (18 Nov): a number keeps 15 significant digits, and a text that
+         * looks like a month, a date-time or a time becomes a Date */
+        if (/^-?\d+(\.\d+)?$/.test(x)) return Number(Number(x).toPrecision(15));
+        if (/^\d{4}-\d{1,2}$/.test(x)) return new Date(+x.slice(0, 4), +x.slice(5) - 1, 1);
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(x)) return new Date(+x.slice(0, 4), +x.slice(5, 7) - 1, +x.slice(8, 10), +x.slice(11, 13), +x.slice(14, 16));
+        return x;
       })));
       return rg; };
     const ins = ss.insertSheet.bind(ss);
@@ -119,6 +124,8 @@ run(function () {
   var b = hd(bill), amt = b.indexOf('Amount') + 1, paid = b.indexOf('PaidDate') + 1;
   bill.getRange(3, amt).setValue(6899.999999999999);              // the float that becomes 6900.00
   bill.getRange(3, paid).setValue(new Date(2026, 10, 20));
+  bill.getRange(3, b.indexOf('Month') + 1).setValue('2026-12');     // R9: STUDENT_CHARGES.Month came back a Date
+  bill.getRange(3, b.indexOf('QRRef') + 1).setValue('13.78879670325946'); // R9: GPS_Lat text, 17 digits
   bill.deleteRow(2);                                                // a bill removed after the move
   hr.getSheetByName('PAYROLL').appendRow(row(hr.getSheetByName('PAYROLL'), { PayrollID: 'PAY-NEW', StaffID: 'STF-1', BaseSalary: 15000, GeneratedDate: new Date(2026, 11, 1, 9, 5, 0) }));
 });
@@ -156,8 +163,13 @@ TABLES.forEach(k => eq('🔴 ' + k + ' — บนชีตตรงกับบ�
 ok_('💰 6899.999999999999 กลับมาเป็น 6900 (ค่าที่ Postgres เก็บ)', JSON.stringify(after['MAIN:BILLING']).includes('"6900"'));
 
 console.log('\n4) ถอยการสลับได้');
+run(() => unfreezeWrites());                       // R9 order: unfreeze runs on the COPY, before the undo
 const und = run(() => rbUndoActivate_());
 eq('กลับไป Postgres และไฟล์คืนย้าย', [und.ok, props.DB_BACKEND, props.WB_MAIN_ID === w.main.getId()], [true, 'pg', true]);
+/* R9 18 Nov: that unfreeze cleared the copy's SCHOOL_CONFIG row, not Postgres's */
+ok_('🔴 บอกว่า Postgres ยังปิดรับการเขียน (WriteFreeze ค้างจาก freezeWrites)', und.postgresFrozen === true && /unfreezeWrites/.test(und.note || ''), und);
+run(() => unfreezeWrites());
+eq('…รัน unfreezeWrites อีกครั้งแล้วเปิดจริง', run(() => { _configCache = null; return getConfig_('WriteFreeze', ''); }), '');
 eq('ข้อมูลบน Postgres ยังเหมือนเดิม', run(SNAP), before);
 
 console.log('\n5) 🔴 ถ้าชีตทำค่าหาย → สลับไม่ได้');
