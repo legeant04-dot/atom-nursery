@@ -8505,7 +8505,7 @@
   SCREENS.Admin.home = async () => {
     // ...and the holiday-OT card rides in the SAME batch instead of taking a round trip of its own
     // after the screen is drawn. On an ordinary day it answers "nothing"; that answer is now free.
-    const p_holDay = api('holidayAttendList',{}).catch(()=>null);
+    const p_holDay = api('holidayAttendList',{staffId:USER.staffId}).catch(()=>null);
     /* 🔴 THE ANNOUNCEMENTS, started HERE rather than awaited at the bottom of the screen.
      *
      * It was the last line of this function — `const _anns = await api('announcements')` — issued
@@ -8825,6 +8825,22 @@
       const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
       const arr=x=>x.checkIn?`🟢 ${esc(String(x.checkIn).slice(0,5))}${x.checkOut?` → 🔴 ${esc(String(x.checkOut).slice(0,5))}`:''}`
         :`<span style="color:var(--warn)">${EN()?'not clocked in yet':'ยังไม่ได้ลงเวลา'}</span>`;
+      /* CHILDREN ON THE LIST AND NO TEACHER (21/11/26, น้องฮันเตอร์). Every OT วันหยุด of the day had
+       * been deleted and this card kept saying "ทำงานวันนี้" — calmly, in blue, as if the day were
+       * staffed. It is not hidden either: a child who can still be checked in, perhaps with a bill
+       * standing, on a day nobody is paid to be there, is exactly what this screen is for. It turns
+       * into a warning, and the button is the only door left to that day's list. */
+      if(!(h.staff||[]).length && h.count){
+        el.innerHTML=`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)">
+          <div class="spread"><h3 style="margin:0">⚠️ ${EN()?'Children listed, no staff (holiday)':'มีนักเรียนในรายชื่อ แต่ไม่มีคุณครู (วันหยุด)'}</h3>
+            <span class="muted">${esc(ddmmyyyy(h.date))}${h.reason?' · '+esc(h.reason):''}</span></div>
+          <small style="display:block;margin-top:var(--sp-1);color:var(--warn)">${EN()
+            ? 'No staff is on holiday OT today, yet these children can still be checked in and any holiday-care bill still stands. If the day was cancelled, take them off the list.'
+            : 'วันนี้ไม่มีคุณครูทำ OT วันหยุด แต่นักเรียนเหล่านี้ยังลงเวลาได้ และบิลค่าดูแลวันหยุด (ถ้ามี) ยังอยู่ · ถ้ายกเลิกวันนั้นแล้ว ให้เอาชื่อออก'}</small>
+          ${(h.students||[]).map(s=>`<div class="list-item"><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.class||'')}</small>
+            <br><small class="muted">🟢 ${esc(s.inTime||'—')} → 🔴 ${esc(s.outTime||'—')}${s.chargeId?` · ${EN()?'bill':'บิล'} ${esc(baht(s.fee||0))}${s.chargeLocked?(EN()?' (paid/slip sent)':' (ชำระแล้ว/ส่งสลิปแล้ว)'):''}`:''}</small></span></div>`).join('')}
+          <button class="btn sm outline block" style="margin-top:var(--sp-2)" onclick="A_hotKidsEdit('${esc(h.date)}','home')">👶 ${EN()?'Manage the children for today':'จัดการรายชื่อนักเรียนวันนี้'}</button></div>`;
+        return; }
       el.innerHTML=`<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
         <div class="spread"><h3 style="margin:0">🎉 ${EN()?'Working today (holiday)':'ทำงานวันนี้ (วันหยุด)'}</h3>
           <span class="muted">${esc(ddmmyyyy(h.date))}${h.reason?' · '+esc(h.reason):''}</span></div>
@@ -16770,7 +16786,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div id="hotKids_${esc(ymd(o.Date))}" class="muted" style="font-size:var(--fs-1);margin:var(--sp-1) 0">…</div>
       <div class="row"><button class="btn sm outline" onclick="A_hotSave('${o.OTRecordID}')">${ic('save')} ${esc(t('c.save'))}</button>
         <button class="btn sm outline" onclick="A_hotKidsEdit('${esc(ymd(o.Date))}')">👶 ${EN()?'Children':'นักเรียน'}</button>
-        <button class="btn sm pink" onclick="A_hotDel('${o.OTRecordID}')">${ic('trash')} ${EN()?'Delete':'ลบ'}</button></div></div>`;
+        <button class="btn sm pink" onclick="A_hotDel('${o.OTRecordID}','${esc(ymd(o.Date))}')">${ic('trash')} ${EN()?'Delete':'ลบ'}</button></div></div>`;
     modal(`<h3>🎉 ${EN()?'Holiday OT':'OT วันหยุด'}</h3>
       <label class="field"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="hotMonth" value="${HOT_MONTH}" onchange="A_holidayOT(this.value)"/></label>
       <details class="card" style="padding:var(--sp-2)" ${hol.length?'':'open'}>
@@ -16825,7 +16841,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * because "I changed mine and hers changed too" is the kind of surprise that stops people trusting
    * a screen.
    */
-  window.A_hotKidsEdit=async(date)=>{
+  window.A_hotKidsEdit=async(date,from)=>{
     let list=A_CACHE.students;
     if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
     let cur=[]; let staff=[]; let dfltFee='';
@@ -16848,14 +16864,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           ${sortPeople(byClass[c]).map(s=>hotKidRow(s,{cls:'hkchk',feeCls:'hkfee',onchg:'A_hkSel()',cur:curBy[s.StudentID],dflt:dfltFee,klass:c})).join('')}
         </div>`).join('')||`${empty('none')}`}</div>
       <div id="hkFeeSum" style="font-size:var(--fs-1);margin-top:var(--sp-1)"></div>
-      <button class="btn block green" style="margin-top:var(--sp-2)" onclick="A_hotKidsSave('${esc(date)}',this)">${ic('save')} ${esc(t('c.save'))}</button>
+      <button class="btn block green" style="margin-top:var(--sp-2)" onclick="A_hotKidsSave('${esc(date)}',this,'${from==='home'?'home':''}')">${ic('save')} ${esc(t('c.save'))}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     A_hkSel();
   };
   window.A_hkSel=()=>{ const n=document.querySelectorAll('.hkchk:checked').length;
     const el=document.getElementById('hkN'); if(el)el.textContent='('+n+')';
     hotFeeSummary('hkchk','hkfee','hkFeeSum'); };
-  window.A_hotKidsSave=async(date,btn)=>{ const m=btn.closest('.modal');
+  window.A_hotKidsSave=async(date,btn,from)=>{ const m=btn.closest('.modal');
     const studentIds=[...m.querySelectorAll('.hkchk:checked')].map(c=>c.value);
     const fees=hotFeesOf(m,'hkchk','hkfee'); if(!fees) return;
     const sum=hotFeeTotals(m,'hkchk','hkfee');
@@ -16863,7 +16879,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         :`ออก/ปรับบิลค่าดูแลวันหยุด ${sum.n} คน รวม ${baht(sum.total)} ใช่หรือไม่?`)) return;
     btn.disabled=true;
     try{ const r=await api('holidayAttendSet',{staffId:USER.staffId,date,studentIds,fees});
-      m.remove(); confirmSaved(hotSavedMsg(r)); A_hotRefresh(); }catch(e){ err(e); btn.disabled=false; } };
+      m.remove(); confirmSaved(hotSavedMsg(r));
+      // opened from the dashboard's warning card: redraw THAT screen, not the OT วันหยุด one it never came from
+      if(from==='home'){ if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT](); }
+      else A_hotRefresh(); }catch(e){ err(e); btn.disabled=false; } };
   /**
    * The date box says, as it is typed, whether the day is one OT วันหยุด may be recorded against.
    *
@@ -17009,8 +17028,48 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       confirmSaved(hotSavedMsg(r)); A_hotRefresh(); }catch(e){err(e);} };
   window.A_hotSave=async(otId)=>{ const a=document.getElementById('hot_a_'+otId), n=document.getElementById('hot_n_'+otId);
     try{ await api('adminEditOT',{staffId:USER.staffId,otId,amount:a?a.value:undefined,note:n?n.value:undefined}); toast(t('c.saved')); A_hotRefresh(); }catch(e){err(e);} };
-  window.A_hotDel=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return;
-    try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); A_hotRefresh(); }catch(e){err(e);} };
+  window.A_hotDel=async(otId,date)=>{ if(!confirm(t('manage.confirmDel')))return;
+    try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); }catch(e){ err(e); return; }
+    if(date) await A_hotOrphanKids(date);
+    A_hotRefresh(); };
+  /**
+   * THE LAST TEACHER OF A HOLIDAY WAS JUST TAKEN OFF — what about the children?
+   *
+   * 21/11/26: every OT วันหยุด of the day was deleted and the dashboard still said "ทำงานวันนี้
+   * (วันหยุด)" with น้องฮันเตอร์ on it. The children's list belongs to the DAY, not to a teacher's
+   * row, so deleting the teachers left it behind: the child could still be checked in, any
+   * holiday-care bill still stood — and with no teacher row left for that date, this screen had no
+   * 👶 button through which anybody could reach the list again.
+   *
+   * ASKED, never assumed (ผอ.'s choice): an admin may delete a teacher only to put another one on,
+   * and that must not cancel a family's bill and send them a LINE by itself. A bill already paid or
+   * slip-sent, and a child already checked in, are never removed here — they stay on the list and
+   * the admin is told which and why.
+   */
+  const A_hotOrphanKids=async(date)=>{
+    let l=null; try{ l=await api('holidayAttendList',{date,staffId:USER.staffId}); }catch(e){ return; }
+    if(!l||(l.staff||[]).length||!(l.students||[]).length) return;
+    const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+    const stuck=l.students.filter(s=>s.chargeLocked||s.inTime||s.outTime);
+    const free=l.students.filter(s=>stuck.indexOf(s)<0);
+    const billed=free.filter(s=>s.chargeId), billTot=billed.reduce((a,s)=>a+Number(s.fee||0),0);
+    const names=a=>a.map(dn).join(', ');
+    const stuckWhy=stuck.length?(EN()
+      ? `\n\nCannot be removed (bill paid / slip sent, or already checked in): ${names(stuck)}`
+      : `\n\nเอาออกไม่ได้ (บิลชำระแล้ว/ส่งสลิปแล้ว หรือลงเวลาแล้ว): ${names(stuck)}`):'';
+    if(!free.length){ alert((EN()
+      ? `No staff is on holiday OT on ${ddmmyyyy(date)} any more, but children are still on that day's list.`
+      : `วันที่ ${ddmmyyyy(date)} ไม่มีคุณครูทำ OT วันหยุดแล้ว แต่ยังมีนักเรียนในรายชื่อวันนั้น`)+stuckWhy); return; }
+    if(!confirm((EN()
+      ? `No staff is on holiday OT on ${ddmmyyyy(date)} any more, but ${l.students.length} child(ren) are still on that day's list: ${names(l.students)}\n\nTake ${names(free)} off the list too?`
+      : `วันที่ ${ddmmyyyy(date)} ไม่มีคุณครูทำ OT วันหยุดแล้ว แต่ยังมีนักเรียนในรายชื่อ ${l.students.length} คน: ${names(l.students)}\n\nเอา ${names(free)} ออกจากรายชื่อวันนั้นด้วยไหม?`)
+      +(billed.length?(EN()
+        ? `\nThe unpaid holiday-care bill(s) — ${billed.length}, total ${baht(billTot)} — will be cancelled and the families told.`
+        : `\nบิลค่าดูแลวันหยุดที่ยังไม่ชำระ ${billed.length} คน รวม ${baht(billTot)} จะถูกยกเลิก และแจ้งผู้ปกครอง`):'')
+      +stuckWhy)) return;
+    // the ones that must stay are SENT — the server keeps their price as it is (no `fees`)
+    try{ await api('holidayAttendSet',{staffId:USER.staffId,date,studentIds:stuck.map(s=>s.studentId)});
+      toast(EN()?'Removed from the day':'เอาออกจากรายชื่อวันนั้นแล้ว'); }catch(e){ err(e); } };
 
   window.A_otVerify=async()=>{ const rows=await api('otVerification',{});
     modal(`<h3>⏱️ ${esc(t('manage.otVerify'))}</h3><p class="muted" style="font-size:var(--fs-1)">${esc(t('ot.verifyNote'))}</p>

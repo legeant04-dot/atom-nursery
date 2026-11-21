@@ -196,7 +196,18 @@ console.log('\n6) the screen: ดำเนินการ → คุณครู
   ok_('it confirms the TOTAL before writing, not just the per-head amount', /รวม \$\{baht\(at\.total\)\}/.test(scr) && /function hotAmtTotals\(/.test(scr));
   ok_('the month is listed with its total, so the Admin can see what has been granted', /const total=hol\.reduce/.test(scr));
   ok_('...and each row can be corrected or removed', /A_hotSave/.test(scr) && /A_hotDel/.test(scr));
-  ok_('deleting asks first', /A_hotDel=async\(otId\)=>\{ if\(!confirm/.test(scr));
+  ok_('deleting asks first', /A_hotDel=async\(otId,date\)=>\{ if\(!confirm/.test(scr));
+  /* 21/11/26 (น้องฮันเตอร์): the last teacher of a day deleted, the children's list left behind,
+   * and no row left on this screen to reach it. */
+  ok_('deleting the last teacher of a day ASKS about the children left on it',
+    /if\(date\) await A_hotOrphanKids\(date\)/.test(scr) && /\(l\.staff\|\|\[\]\)\.length\|\|!\(l\.students/.test(scr));
+  ok_('...a paid / slip-sent bill or a checked-in child is never sent for removal',
+    /const stuck=l\.students\.filter\(s=>s\.chargeLocked\|\|s\.inTime\|\|s\.outTime\)/.test(scr)
+    && /holidayAttendSet',\{staffId:USER\.staffId,date,studentIds:stuck\.map/.test(scr));
+  ok_('...and nothing is removed unless the admin says yes', /if\(!confirm\(\(EN\(\)[\s\S]{0,400}names\(free\)/.test(scr));
+  ok_('the dashboard turns a children-but-no-staff holiday into a WARNING with the way in',
+    /if\(!\(h\.staff\|\|\[\]\)\.length && h\.count\)\{[\s\S]{0,200}--warn-bg/.test(app)
+    && /A_hotKidsEdit\('\$\{esc\(h\.date\)\}','home'\)/.test(app));
   ok_('mobile-first: the form is collapsed once there is a list to read', /<details class="card"[^>]*>\s*\n?\s*<summary/.test(scr) && /\$\{hol\.length\?'':'open'\}/.test(scr));
   ok_('the lists scroll inside their own box rather than pushing Save off-screen', (scr.match(/overflow:auto/g) || []).length >= 2);
 }
