@@ -27,7 +27,13 @@ function eq(label, got, want) {
   okk ? pass++ : fail++;
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
-const src0 = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'api.js'), 'utf8');
+/* 🌙 TWO builds are legal, nothing else: TODAY (FAST_URL '' · no FAST_WRITES) and the MOVE-NIGHT build
+ * (branch moveday: FAST_WRITES on + the production fast host atom-fast-prod). Any other URL in api.js —
+ * staging, UAT — fails here. The routing below is driven from TODAY's config either way, so every state
+ * keeps being tested on both branches. */
+const srcFile = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'api.js'), 'utf8');
+const NIGHT = /window\.CONFIG = \{ FAST_WRITES: true, FAST_URL: 'https:\/\/atom-fast-prod-120486339414\.asia-southeast1\.run\.app',/.test(srcFile);
+const src0 = srcFile.replace(/window\.CONFIG = \{ FAST_WRITES: true, FAST_URL: 'https:\/\/atom-fast-prod-120486339414\.asia-southeast1\.run\.app',/, "window.CONFIG = { FAST_URL: '',");
 /* the test may add a WRITE to the declared list (none is there today) — the rest of the file is untouched */
 const src = src0.replace('const FAST_ACTIONS = {', 'const FAST_ACTIONS = window.__FA = {');
 const HOST = 'https://atom-fast-120486339414.asia-southeast1.run.app/';
@@ -82,7 +88,7 @@ console.log('\n1) วันนี้: FAST_URL ว่าง ไม่มี pilo
   await Promise.all([t.api('classList'), t.api('payments')]); await t.api('staffSelf');
   eq('คำขอถึงโฮสต์ใหม่', t.sent.host.length, 0);
   ok_('ทุกคำขอไป Apps Script', t.sent.gas.length >= 2);
-  ok_('🔴 FAST_URL ใน api.js ยังว่าง', /FAST_URL: ''/.test(src0));
+  ok_('🔴 api.js คือรุ่นวันนี้ (FAST_URL ว่าง) หรือรุ่นคืนย้าย (โฮสต์ตัวจริง) เท่านั้น', NIGHT || (/FAST_URL: ''/.test(srcFile) && !/FAST_WRITES:s*true/.test(srcFile)));
 }
 
 console.log('\n2) pilot ทีละเครื่อง — รับเฉพาะ URL ของบริการเรา');

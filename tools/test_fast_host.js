@@ -171,7 +171,9 @@ console.log('\n8) การสลับปลายทางฝั่ง client'
    * FAST_URL ว่าง = ทุก request ไป GAS เหมือนเดิมทุกประการ
    * ถ้าข้อนี้แดง แปลว่ามีคนเผลอเปิดเส้นเร็วให้ทั้งโรงเรียนโดยไม่ได้ตั้งใจ */
   const m = /FAST_URL: '([^']*)'/.exec(api);
-  ok_('🔴 FAST_URL ยังว่างอยู่ (ยังไม่เปิดใช้กับใคร)', !!m && m[1] === '');
+  /* 🌙 the move-night build (branch moveday) is the one other legal value — the production host, never staging/UAT */
+  ok_('🔴 FAST_URL ว่าง (รุ่นวันนี้) หรือเป็นโฮสต์ตัวจริงของคืนย้ายเท่านั้น',
+    !!m && (m[1] === '' || m[1] === 'https://atom-fast-prod-120486339414.asia-southeast1.run.app'));
   ok_('ว่าง = ไม่สลับ (เว้นเครื่อง pilot ที่ตั้ง URL ของเราเอง)', api.indexOf('if (!fastUrl()) return false;') >= 0 && api.indexOf('const FAST_PILOT_RE = /^https:\\/\\/atom-fast-120486339414\\.asia-southeast1\\.run\\.app\\/?$/;') >= 0);
 
   /* batch ต้องไปทางเดียวกันทั้งก้อน · ถ้าครึ่งหนึ่งไป Postgres อีกครึ่งไปชีต

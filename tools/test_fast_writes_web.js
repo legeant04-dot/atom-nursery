@@ -29,7 +29,14 @@ function eq(label, got, want) {
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 
-const API = fs.readFileSync(path.join(ROOT, 'webapp', 'api.js'), 'utf8');
+/* 🌙 TWO builds are legal, nothing else: TODAY (FAST_URL '' · no FAST_WRITES) and the MOVE-NIGHT build
+ * (branch moveday: FAST_WRITES on + the production fast host atom-fast-prod). Any other URL in api.js —
+ * staging, UAT — fails section 1. The routing is driven from TODAY's config either way, so every state
+ * keeps being tested on both branches. */
+const API_FILE = fs.readFileSync(path.join(ROOT, 'webapp', 'api.js'), 'utf8');
+const NIGHT_RE = /window\.CONFIG = \{ FAST_WRITES: true, FAST_URL: 'https:\/\/atom-fast-prod-120486339414\.asia-southeast1\.run\.app',/;
+const NIGHT = NIGHT_RE.test(API_FILE);
+const API = API_FILE.replace(NIGHT_RE, "window.CONFIG = { FAST_URL: '',");
 const HOST = 'https://atom-fast-120486339414.asia-southeast1.run.app/';
 const UATHOST = 'https://atom-uat-1.asia-southeast1.run.app';
 const GAS = 'https://example.test/exec';
@@ -94,7 +101,8 @@ eq('ไม่ซ้ำกับรายการอ่าน', FW.filter(a => F
 
 console.log('\n1) รุ่นที่ใช้วันนี้ + เครื่อง pilot → อ่านไปโฮสต์ · เขียนไม่ไปเลย');
 {
-  ok_('🔴 api.js: FAST_URL ว่าง · ไม่มี FAST_WRITES: true', /FAST_URL: ''/.test(API) && !/FAST_WRITES:\s*true/.test(API));
+  ok_('🔴 api.js: รุ่นวันนี้ (FAST_URL ว่าง · ไม่มี FAST_WRITES) หรือรุ่นคืนย้าย (โฮสต์ตัวจริง + FAST_WRITES) เท่านั้น',
+    NIGHT || (/FAST_URL: ''/.test(API_FILE) && !/FAST_WRITES:\s*true/.test(API_FILE)));
   const t = boot({ pilot: HOST });
   await t.api('classList');
   for (const a of ['staffCheckin', 'parentCheckin', 'submitLeave', 'studentAbsence']) await t.api(a, { x: 1 });
@@ -200,8 +208,10 @@ console.log('\n9) build_web --uat: สวิตช์อยู่ในผลล
   ok_('มีป้าย UAT บนหน้าจอ', fs.readFileSync(path.join(tmp, 'u', 'index.html'), 'utf8').includes('UAT · ข้อมูลทดสอบ'));
   const n = run([path.join(tmp, 'n')]);
   const na = fs.readFileSync(path.join(tmp, 'n', 'api.js'), 'utf8');
-  ok_('รุ่นปกติ: ไม่มี FAST_WRITES · FAST_URL ว่าง', n.status === 0 && !/FAST_WRITES:!0/.test(na) && /FAST_URL:""/.test(na));
-  eq('webapp/api.js ไม่ถูกแก้', fs.readFileSync(path.join(ROOT, 'webapp', 'api.js'), 'utf8'), API);
+  ok_('รุ่นปกติ: ตรงกับ webapp/api.js (วันนี้: ว่าง · คืนย้าย: โฮสต์ตัวจริง + FAST_WRITES)', n.status === 0 && (NIGHT
+    ? (/FAST_WRITES:!0/.test(na) && na.includes('FAST_URL:"https://atom-fast-prod-120486339414.asia-southeast1.run.app"'))
+    : (!/FAST_WRITES:!0/.test(na) && /FAST_URL:""/.test(na))));
+  eq('webapp/api.js ไม่ถูกแก้', fs.readFileSync(path.join(ROOT, 'webapp', 'api.js'), 'utf8'), API_FILE);
   const live = /GAS_URL: '([^']*)'/.exec(API)[1];
   eq('🔴 ปฏิเสธ Apps Script ตัวจริง', run(['--uat', '--fast', UATHOST, '--gas', live, '--liff', UL, path.join(tmp, 'x')]).status, 1);
   eq('🔴 ไม่มี --liff → ปฏิเสธ', run(['--uat', '--fast', UATHOST, '--gas', uatGas, path.join(tmp, 'l1')]).status, 1);

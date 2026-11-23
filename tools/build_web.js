@@ -54,7 +54,8 @@ function uatize(rel, text) {
   if (!UAT) return text;
   const once = (t, re, to, what) => { const n = (t.match(re) || []).length; if (n !== 1) die('UAT: ' + what + ' matched ' + n + '×'); return t.replace(re, to); };
   if (rel === 'api.js') {
-    text = once(text, /window\.CONFIG = \{ FAST_URL: '',/g, "window.CONFIG = { FAST_WRITES: true, FAST_URL: '" + UAT_FAST.replace(/\/$/, '') + "',", 'CONFIG.FAST_URL');
+    // ...from today's build (FAST_URL '') or the move-night one (FAST_WRITES + production host) alike
+    text = once(text, /window\.CONFIG = \{ (?:FAST_WRITES: true, )?FAST_URL: '[^']*',/g, "window.CONFIG = { FAST_WRITES: true, FAST_URL: '" + UAT_FAST.replace(/\/$/, '') + "',", 'CONFIG.FAST_URL');
     text = once(text, /LIFF_ID: '[^']*'/g, "LIFF_ID: '" + UAT_LIFF + "'", 'CONFIG.LIFF_ID');
     return once(text, /GAS_URL: '[^']*'/g, "GAS_URL: '" + UAT_GAS + "'", 'CONFIG.GAS_URL');
   }
