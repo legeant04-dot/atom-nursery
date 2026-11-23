@@ -33,7 +33,12 @@ function eq(label, got, want) {
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
-const src = R('webapp/api.js');
+/* This suite is about the APPS SCRIPT path. The move-night build (branch moveday) points api.js at the
+ * production fast host, which would send these reads there first — so the GAS path is driven from
+ * today's config on both branches (the fast path has its own suites: test_fast_forward/_writes_web). */
+const src = R('webapp/api.js').replace(
+  /window\.CONFIG = \{ FAST_WRITES: true, FAST_URL: 'https:\/\/atom-fast-prod-120486339414\.asia-southeast1\.run\.app',/,
+  "window.CONFIG = { FAST_URL: '',");
 
 // the server's real answer to a request whose body never arrived (src/Code.gs doGet, no action)
 const LOST = { ok: false, a: 'health', error: { code: 'NO_ACTION', service: 'Atom Nursery API', status: 'up' } };

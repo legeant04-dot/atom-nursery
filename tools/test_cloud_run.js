@@ -73,7 +73,11 @@ ok_('container ไม่รันด้วย root', /^USER node$/m.test(R('Dock
   ok_('🔴 ทุกไฟล์ที่ด่าน (gate) และโฮสต์ต้องใช้ อยู่ใน image (' + needed.length + ' ไฟล์)' + (absent.length ? '  → ขาด ' + absent.join(' ') : ''),
     needed.length >= 9 && absent.length === 0);
 }
-ok_('🔴 api.js ยังไม่ชี้ไปโฮสต์ใหม่ — ไม่มีผู้ใช้จริงคนไหนวิ่งเส้นนี้จนกว่าจะตั้งใจเปิด', /FAST_URL: ''/.test(R('webapp/api.js')));
+/* 🌙 the one other legal value is the move-night build (branch moveday): the PRODUCTION host with writes
+ * on. Staging/UAT in api.js would put real families on a test database — still refused. */
+ok_('🔴 api.js ชี้โฮสต์ใหม่เฉพาะรุ่นคืนย้าย (โฮสต์ตัวจริง) — ไม่มีผู้ใช้จริงคนไหนวิ่งเส้นนี้จนกว่าจะตั้งใจเปิด',
+  /FAST_URL: ''/.test(R('webapp/api.js'))
+  || /window\.CONFIG = \{ FAST_WRITES: true, FAST_URL: 'https:\/\/atom-fast-prod-120486339414\.asia-southeast1\.run\.app',/.test(R('webapp/api.js')));
 
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
