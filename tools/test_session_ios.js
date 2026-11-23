@@ -41,8 +41,9 @@ function boot(reply) {
     __sent: sent, __store: store, __fire: n => (listeners[n] || []).slice().forEach(f => f({}))
   };
   ctx.window = ctx; ctx.matchMedia = () => ({ matches: false }); ctx.addEventListener = ctx.document.addEventListener;
+  ctx.__urls = [];
   ctx.fetch = (url, init) => {
-    const body = JSON.parse(init.body); sent.push(body);
+    const body = JSON.parse(init.body); sent.push(body); ctx.__urls.push(String(url));
     const out = reply(body, sent);
     if (out === 'NETFAIL') return Promise.reject(new TypeError('Load failed'));
     return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify(out)) });
@@ -244,6 +245,23 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     const got = await p;
     ok_('and it completes when the user comes back', Array.isArray(got));
     eq('...on the second attempt', n, 2);
+  }
+  {
+    /* ...and the same on the FAST host (23/11, preparing the move-night build). A read the phone
+     * cancelled there fell straight through to Apps Script while still off screen — a second request
+     * for iOS to cancel, and a host that was never down skipped. It waits, then asks the host again. */
+    const FAST = 'https://atom-fast-prod-120486339414.asia-southeast1.run.app';
+    let n = 0;
+    const c = boot(b => { if (b.action === 'classList') { n++; if (n === 1) return 'NETFAIL'; } return anyReply(b); });
+    c.CONFIG.FAST_URL = FAST;
+    c.document.hidden = true;
+    const p = c.api('classList', {});
+    await wait(120);
+    eq('fast host: nothing is retried while the app is in the background', n, 1);
+    c.document.hidden = false; c.__fire('visibilitychange');
+    const got = await p;
+    ok_('fast host: it completes when the user comes back', Array.isArray(got));
+    eq('fast host: ...and asks the fast host again, not Apps Script', c.__urls.slice(-1)[0].indexOf(FAST) === 0, true);
   }
   {
     // a write must NOT be repeated: it may already have been applied before the connection dropped

@@ -380,7 +380,8 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     try { PERF.mark('fastFwd', why || String(body && body.action || ''), 0); } catch (x) {}
     return postGas(body, 0, 0, true);
   };
-  async function postFast(body) {
+  async function postFast(body, resumes) {
+    resumes = resumes || 0;
     const asked = String(body && body.action || '');
     const payload = JSON.stringify(Object.assign({ token: _session }, body));
     if (payload.length > MAX_POST) return postGas(body, 0, 0, true);   // ข้อความ TOO_LARGE มาจากทางเดิม
@@ -405,6 +406,12 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
       }
       /* 🔴 การอ่านถาม GAS ต่อได้เสมอ · การเขียนไม่ได้: คำขออาจถึงโฮสต์และบันทึกไปแล้ว
        * ส่งซ้ำไป GAS = บันทึกสองครั้ง (เงินสองก้อน) จึงบอกตามจริงว่าไม่รู้ ให้ตรวจก่อนทำซ้ำ */
+      /* 📱 PAUSED, NOT DOWN (found 23/11 preparing the move-night build — test_session_ios).
+       * iOS cancels a request when the app goes off screen. On the GAS path that waits for the
+       * foreground and tries again; here it fell straight through to Apps Script while still in the
+       * background — a second request that iOS cancels too, and a host that was never down skipped.
+       * Same rule as postGas: a read waits to be back on screen, then asks the fast host again. */
+      if (read && backgrounded && resumes < MAX_RESUMES) { await visible(); return postFast(body, resumes + 1); }
       if (read) return viaGas(body, 'down:' + asked);
       const eW = new Error(timedOut
         ? 'ระบบใช้เวลานานเกินไป — โปรดตรวจสอบก่อนทำรายการซ้ำ เพราะอาจบันทึกไปแล้ว'
