@@ -8591,6 +8591,7 @@
          มันไม่โผล่ในคิวตรวจ และเคยถูกนับรวมอยู่ในตัวเลขด้านบน ทำให้หน้าหลักกับหน้าการเงินไม่ตรงกัน */
       orphanSlips:['สลิปที่รายการปิดไปแล้ว — รอเคลียร์', 'slips whose item was already closed'],
       withdraw:   ['ใบแจ้งออกรอดำเนินการ', 'withdrawals to process'],
+      applications:['ใบสมัครเรียนรอพิจารณา', 'applications waiting for a decision'],
       noCheckout: ['วันที่ครูลืมลงเวลาออก (เดือนนี้)', 'days a teacher never clocked out'],
       journals:   ['สมุดบันทึกวันนี้ที่ยังไม่ได้ส่ง', 'journals not sent today'],
       ending:     ['เด็กที่ถึงวันสุดท้ายภายใน 7 วัน', 'children finishing within 7 days'],
@@ -8606,7 +8607,7 @@
       slips:"A_finTab('wait')",
       /* ...and this one, which had no entry at all and therefore fell through to GO('manage') —
          a screen with nothing about slips on it. ผอ. 2026-10-29: "กดแล้วไปที่หน้าจัดการ แล้วยังไงต่อ?" */
-      orphanSlips:"A_finTab('wait')", withdraw:"GO('manage')", noCheckout:"A_staffMonth()", journals:"A_journals()",
+      orphanSlips:"A_finTab('wait')", withdraw:"GO('manage')", applications:"A_applications()", noCheckout:"A_staffMonth()", journals:"A_journals()",
       ending:"GO('manage')", graceSoon:"GO('manage')", childRate:"GO('payroll')" };
     const TODO_TONE = { slips:'bad', studentOT:'bad', noCheckout:'warn', graceSoon:'warn', journals:'warn',
       // เรื่องเงินที่ยังไม่ถูกต้อง — โทนเดียวกับ noCheckout ซึ่งเป็นเงินเดือนที่ยังคำนวณไม่ได้เหมือนกัน

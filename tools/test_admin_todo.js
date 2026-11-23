@@ -69,7 +69,9 @@ const res = JSON.parse(run(function () {
     return { total: t.total, keys: (t.items || []).map(function (i) { return i.key; }), byKey: byKey,
              /* คิวตรวจตัวจริง — เพื่อเทียบว่าตัวเลขบนหน้าหลักตรงกับสิ่งที่หน้าการเงินแสดงจริง */
              queue: H.pendingPayments({}),
-             ops: H.opsPending({ staffId: 'TD-ADM' }) };
+             ops: H.opsPending({ staffId: 'TD-ADM' }),
+             /* แท็บ "รอดำเนินการ" ของหน้าใบสมัคร — ปลายทางของแถว applications */
+             appsOpen: (H.listApplications({ staffId: 'TD-ADM', status: 'OPEN' }) || []).length };
   }
   var out = {};
   out.empty = todo();                     // โรงเรียนที่ไม่มีอะไรค้าง
@@ -93,9 +95,15 @@ const res = JSON.parse(run(function () {
   appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'TD-K2', Name: 'เด็กสอง', Nickname: 'สอง',
     Class: 'Nursery 1', Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01' });
   appendObject_(sheet_(MAIN, 'LEAVE_REQUEST_STD'), { StudentID: 'TD-K2', Date: T, Type: 'ลาป่วย' });
+  /* 📝 ใบสมัครเรียน (ผอ. 2026-11-23: "รอการอนุมัติ แต่ไม่ขึ้นใน To Do Lists") — สองใบที่ยังรอแอดมิน
+   * (ส่งแล้ว · นัดดูโรงเรียนแล้ว) และสองใบที่จบไปแล้ว ซึ่งต้องไม่ถูกนับ */
+  appendObject_(sheet_(MAIN, 'APPLICATIONS'), { AppID: 'APP-0001', Status: 'SUBMITTED', ChildName: 'ใบสมัครหนึ่ง' });
+  appendObject_(sheet_(MAIN, 'APPLICATIONS'), { AppID: 'APP-0002', Status: 'VISIT', ChildName: 'ใบสมัครสอง' });
+  appendObject_(sheet_(MAIN, 'APPLICATIONS'), { AppID: 'APP-0003', Status: 'APPROVED', ChildName: 'ใบสมัครสาม' });
+  appendObject_(sheet_(MAIN, 'APPLICATIONS'), { AppID: 'APP-0004', Status: 'REJECTED', ChildName: 'ใบสมัครสี่' });
   try { CacheService.getScriptCache().removeAll(['rows:LEAVE_REQUEST', 'col:LEAVE_REQUEST',
     'rows:PAYMENT_SLIPS', 'col:PAYMENT_SLIPS', 'rows:STUDENTS', 'col:STUDENTS',
-    'rows:LEAVE_REQUEST_STD', 'col:LEAVE_REQUEST_STD']); } catch (e) {}
+    'rows:LEAVE_REQUEST_STD', 'col:LEAVE_REQUEST_STD', 'rows:APPLICATIONS', 'col:APPLICATIONS']); } catch (e) {}
   out.busy = todo();
 
   /* 💰 ครูคนใหม่ที่ยังไม่ได้กำหนดเรทจำนวนเด็ก (ผอ. 2026-10-23)
@@ -174,6 +182,10 @@ console.log('\n2) 📋 มีงานค้าง — ขึ้นเฉพา�
    * สอนให้คนเลิกสนใจการ์ดทั้งใบ */
   if (_weekend) console.log('  --   ข้ามข้อ "สมุดบันทึกค้าง" (วันนี้เสาร์/อาทิตย์ โรงเรียนปิด จึงไม่นับ)');
   else eq('🔴 สมุดบันทึกค้าง นับเฉพาะเด็กที่วันนี้ควรมีบันทึก (ไม่นับคนที่ลา)', res.busy.byKey.journals, 1);
+  eq('📝 ใบสมัครเรียนที่รอแอดมิน (ส่งแล้ว + นัดดูโรงเรียนแล้ว) — ใบที่อนุมัติ/ปฏิเสธแล้วไม่นับ', res.busy.byKey.applications, 2);
+  eq('🔴 ...และตรงกับแท็บ "รอดำเนินการ" ของหน้าใบสมัครเป๊ะ', res.busy.byKey.applications, res.busy.appsOpen);
+  ok_('...แถวนี้มีชื่อบนการ์ด และกดแล้วไปหน้าใบสมัคร',
+    /applications:\['ใบสมัครเรียนรอพิจารณา'/.test(app) && /applications:"A_applications\(\)"/.test(app));
   ok_('รายการที่ยังเป็นศูนย์ ไม่โผล่ขึ้นมาด้วย',
     res.busy.keys.indexOf('withdraw') < 0 && res.busy.keys.indexOf('injury') < 0);
   eq('ผลรวมเท่ากับผลบวกของรายการที่แสดง', res.busy.total,
