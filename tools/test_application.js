@@ -361,5 +361,55 @@ console.log('\n11) หน้าจอ — ทางเข้าเดียว�
     .every(n => new RegExp('\\b' + n + ': 1').test(code)));
 }
 
+console.log('\n13) 🔗 แอดมินสร้างนักเรียนไว้ก่อนใบสมัคร (น้องกอบบุญ 2026-11-24) — ผูกใบสมัครกับนักเรียนเดิม');
+{
+  const { H, M } = boot({});
+  const r = H.submitApplication(form(H));
+  // the office typed the child in by hand — class, first day and plan of its own, a different allergy, no address
+  H.addStudentByAdmin({ student: { NationalID: NID, NameTH: 'ด.ญ. ทดลอง ใจดี', Nickname: 'ดี', DOB: '2024-06-01', Class: 'Nursery 2',
+    EnrollDate: '2026-11-01', Plan: 'M6900', Allergy: 'ไม่มี' }, pickupPersons: [{ Name: 'ยาย ใจดี', Phone: '0800000000' }], adminId: 'ADM' });
+  const s = M.students[0]; s.ParentID = 'PAR-001'; M.userLinks.push({ UserUID: 'Uaaa', StudentID: s.StudentID, VerifiedBy: 'admin' });
+  const before = { cls: s.Class, en: s.EnrollDate, plan: s.Plan, bills: M.payments.length };
+  eq('รับเข้าแบบปกติ → ปฏิเสธเพราะซ้ำ (ไม่สร้างคนที่สอง)', code_(() => H.approveApplication({ appId: r.appId, startDate: NEXT_MONTH, adminId: 'ADM' })), 'ALREADY_REGISTERED');
+  eq('...ยังมีนักเรียนคนเดียว', M.students.length, 1);
+  const v = H.applicationAdmin({ appId: r.appId });
+  eq('หน้าใบสมัครบอกว่ามีนักเรียนคนนี้แล้ว (ผู้ปกครองคนเดียวกัน)', [v.existing && v.existing.studentId, v.existing && v.existing.sameParent], [s.StudentID, true]);
+  // a second child the guard does NOT match must be refused as a target
+  H.addStudentByAdmin({ student: { NameTH: 'ด.ช. คนอื่น', DOB: '2023-01-01', EnrollDate: '2026-11-01' }, adminId: 'ADM' });
+  const other = M.students[1].StudentID;
+  eq('🔴 ผูกกับเด็กคนอื่นไม่ได้', code_(() => H.approveApplication({ appId: r.appId, attachTo: other, adminId: 'ADM' })), 'BAD_INPUT');
+  eq('...ใบสมัครยังรอพิจารณา', M.applications[0].Status, 'SUBMITTED');
+  const a = H.approveApplication({ appId: r.appId, attachTo: s.StudentID, adminId: 'ADM' });
+  eq('รับเข้าแล้ว ชี้ไปที่นักเรียนเดิม · ไม่สร้างคนใหม่', [a.status, a.studentId, a.attached, M.students.length], ['ACCEPTED', s.StudentID, true, 2]);
+  eq('💰 ชั้น วันเริ่มเรียน แผน ไม่เปลี่ยน · ไม่มีบิลเกิด', [s.Class, s.EnrollDate, s.Plan, M.payments.length], [before.cls, before.en, before.plan, before.bills]);
+  eq('ใบสมัครแสดงชั้นและวันเริ่มเรียนของนักเรียนจริง', [a.className, a.startDate], ['Nursery 2', '2026-11-01']);
+  eq('🔴 ช่องที่แอดมินกรอกแล้วไม่ถูกทับ (ชื่อเล่น · แพ้)', [s.Nickname, s.Allergy], ['ดี', 'ไม่มี']);
+  ok_('ช่องที่ว่างถูกเติมจากใบสมัคร (ชื่ออังกฤษ · ที่อยู่ · หมู่เลือด · โรคประจำตัว)', s.NameEN === 'Tadlong Jaidee' && /10110/.test(s.Address) && s.BloodType === 'O' && /หอบหืด/.test(s.MedicalHistory));
+  eq('ผู้รับแทนที่มีแล้วไม่ซ้ำ', M.pickupPersons.filter(x => x.StudentID === s.StudentID).map(x => x.Name), ['ยาย ใจดี']);
+  eq('ผูก LINE ไม่ซ้ำ · ParentID เดิม', [M.userLinks.filter(l => l.UserUID === 'Uaaa' && l.StudentID === s.StudentID).length, s.ParentID], [1, 'PAR-001']);
+  ok_('ความยินยอมและเอกสารชี้ไปที่นักเรียนเดิม', M.consents.every(c => c.StudentID === s.StudentID));
+  eq('ไม่มีน้ำหนักส่วนสูงแถวใหม่ (ไม่ใช่การรับเข้าครั้งแรก)', M.growthRecords.length, 0);
+  eq('ทำซ้ำไม่ได้', code_(() => H.approveApplication({ appId: r.appId, attachTo: s.StudentID, adminId: 'ADM' })), 'BAD_STATE');
+  eq('หน้าใบสมัครหลังรับเข้าไม่เสนอให้ผูกอีก', H.applicationAdmin({ appId: r.appId }).existing, null);
+}
+{
+  const { H, M } = boot({});
+  const r = H.submitApplication(form(H));
+  H.addStudentByAdmin({ student: { NationalID: NID, NameTH: 'ด.ญ. ทดลอง ใจดี', DOB: '2024-06-01', EnrollDate: '2026-11-01' }, adminId: 'ADM' });
+  const s = M.students[0];
+  H.approveApplication({ appId: r.appId, attachTo: s.StudentID, adminId: 'ADM' });
+  eq('นักเรียนที่ยังไม่มีผู้ปกครอง → ผูกกับผู้ปกครองที่สมัคร (ParentID + LINE)', [s.ParentID, M.userLinks.map(l => l.UserUID + '>' + l.StudentID)], ['PAR-001', ['Uaaa>' + s.StudentID]]);
+  const b = boot({}); const r2 = b.H.submitApplication(form(b.H));
+  b.H.addStudentByAdmin({ student: { NationalID: NID, NameTH: 'ด.ญ. ทดลอง ใจดี', DOB: '2024-06-01', EnrollDate: '2026-11-01' }, adminId: 'ADM' });
+  b.M.students[0].Status = 'WITHDRAWN';
+  eq('🔴 นักเรียนที่ลาออกแล้ว → ผูกไม่ได้', code_(() => b.H.approveApplication({ appId: r2.appId, attachTo: b.M.students[0].StudentID, adminId: 'ADM' })), 'BAD_STATE');
+}
+{
+  const app = R('webapp/app.js');
+  ok_('🔗 หน้าใบสมัคร: เด็กที่มีอยู่แล้วเห็นปุ่ม "ผูกกับนักเรียนคนนี้" แทน "รับเข้า"',
+    /a\.existing\?`[\s\S]{0,1600}A_appAttach\('\$\{esc\(a\.appId\)\}'\)[\s\S]{0,300}:`<button class="btn block"[^\n]*A_appApprove\(/.test(app));
+  ok_('🔗 ผูกส่ง attachTo ไปที่ approveApplication (ไม่ใช่ทางใหม่ที่เปิดเพิ่ม)', /api\('approveApplication',\{appId:id,attachTo:sid,/.test(app));
+}
+
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

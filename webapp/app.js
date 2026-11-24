@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.513'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.514'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -15983,7 +15983,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${open?`<div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)">
         <button class="btn sm outline" style="flex:1" onclick="A_appVisit('${esc(a.appId)}')">🏫 ${EN()?'Book visit':'นัดเยี่ยมชม'}</button>
         <button class="btn sm pink" style="flex:1" onclick="A_appReject('${esc(a.appId)}')">❌ ${EN()?'Decline':'ไม่รับ'}</button></div>
-        <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appApprove('${esc(a.appId)}')">✅ ${EN()?'Accept':'รับเข้า'}</button>`:''}
+        ${a.existing?`<div class="card" style="padding:var(--sp-2);margin-top:var(--sp-2);background:var(--warn-bg)">
+          <b>🔗 ${EN()?'This child is already a student':'เด็กคนนี้มีข้อมูลนักเรียนอยู่แล้ว'}</b>
+          <div style="font-size:var(--fs-1)">${esc(a.existing.studentId)} · ${esc(a.existing.nick||'')} ${esc(a.existing.name)} · ${esc(a.existing.className)}${a.existing.status==='WITHDRAWN'?(' · '+(EN()?'withdrawn':'ลาออกแล้ว')):''}</div>
+          <small class="muted" style="font-size:var(--fs-1)">${EN()?'Accepting would create a second record, so it is tied to this student instead.':'กดรับเข้าแบบปกติจะสร้างซ้ำไม่ได้ — ให้ผูกใบสมัครกับนักเรียนคนนี้แทน'}</small></div>
+        ${a.existing.status==='WITHDRAWN'?'':`<button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appAttach('${esc(a.appId)}')">${ic('link')} ${EN()?'Accept — tie to this student':'รับเข้า — ผูกกับนักเรียนคนนี้'}</button>`}`
+        :`<button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appApprove('${esc(a.appId)}')">✅ ${EN()?'Accept':'รับเข้า'}</button>`}`:''}
       ${a.studentId?`<button class="btn block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_appBill('${esc(a.studentId)}')">🧾 ${EN()?'Issue a bill (entry fee / deposit)':'ออกบิล (ค่าแรกเข้า / มัดจำ)'}</button>`:''}
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="A_appPrint('${esc(a.appId)}',this)">${ic('print')} ${EN()?'Print the application (PDF)':'พิมพ์ใบสมัคร (PDF)'}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to the list':'กลับไปรายการ'}</button>`);
@@ -16021,6 +16026,28 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field"><span>${EN()?'Message to the family (optional)':'ข้อความถึงผู้ปกครอง (ไม่บังคับ)'}</span><input id="apAMsg"/></label>
       <button class="btn block" onclick="A_appApproveDo('${esc(id)}',this)">✅ ${EN()?'Accept and create the student':'รับเข้าและสร้างข้อมูลนักเรียน'}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  /* 🔗 the office typed the child in before the application arrived: tie the application to that child.
+   * Only empty fields are filled, class / first day / plan are left as the office set them (no bill moves). */
+  window.A_appAttach=(id)=>{ const a=window._APP_CUR||{}; const x=a.existing||{};
+    modal(`<h3>${ic('link')} ${EN()?'Tie to the existing student':'ผูกใบสมัครกับนักเรียนที่มีอยู่'}</h3>
+      <p><b>${esc(x.studentId)}</b> · ${esc(x.nick||'')} ${esc(x.name)} · ${esc(x.className)} · ${EN()?'started':'เริ่มเรียน'} ${esc(APP_fmtDate(x.enrollDate))}</p>
+      <ul style="font-size:var(--fs-1);margin:0 0 var(--sp-2) 18px;padding:0">
+        <li>${EN()?'Fills only the fields that are still empty — what the office typed is kept':'เติมเฉพาะช่องที่ยังว่าง — ข้อมูลที่กรอกไว้แล้วไม่ถูกเปลี่ยน'}</li>
+        <li>${EN()?'Class, first day and fee plan stay as they are — no bill changes':'ชั้นเรียน วันเริ่มเรียน แผนค่าเรียน คงเดิม — ไม่มีบิลเปลี่ยน'}</li>
+        <li>${EN()?'Adds the pick-up people from the form':'เพิ่มผู้รับแทนจากใบสมัคร (คนที่ยังไม่มี)'}</li>
+        <li>${x.sameParent?(EN()?'The family who applied is already linked':'ผู้ปกครองที่สมัครผูกกับน้องอยู่แล้ว'):(EN()?'Links the LINE account that applied to this child':'ผูกบัญชี LINE ของผู้ปกครองที่สมัครกับน้อง')}</li>
+        <li>${EN()?'Moves the attached papers and consent to the student':'ย้ายเอกสารแนบและความยินยอม PDPA ไปที่นักเรียน'}</li></ul>
+      <label class="field"><span>${EN()?'Message to the family (optional)':'ข้อความถึงผู้ปกครอง (ไม่บังคับ)'}</span><input id="apTMsg"/></label>
+      <small class="muted" style="font-size:var(--fs-1)">🔔 ${EN()?'The family is told in the app that the child was accepted.':'ผู้ปกครองจะได้รับแจ้งในแอปว่าได้รับการตอบรับแล้ว'}</small>
+      <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appAttachDo('${esc(id)}','${esc(x.studentId)}',this)">${ic('link')} ${EN()?'Tie and accept':'ยืนยันผูกและรับเข้า'}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_appAttachDo=async(id,sid,btn)=>{ const m=btn.closest('.modal'); btn.disabled=true;
+    try{ const r=await api('approveApplication',{appId:id,attachTo:sid,parentMessage:m.querySelector('#apTMsg').value.trim(),adminId:USER.staffId});
+      document.querySelectorAll('.modal').forEach(x=>x.remove()); confirmSaved(EN()?'Accepted — tied to the student':'รับเข้าแล้ว — ผูกกับนักเรียนแล้ว');
+      modal(`<h3>${ic('link')} ${EN()?'Tied':'ผูกเรียบร้อย'}</h3><p>${esc(r.nick||r.childName)} · ${esc(r.studentId)} · ${esc(r.className)}</p>
+        <p class="muted" style="font-size:var(--fs-1)">${EN()?'Fields filled':'ช่องที่เติม'}: ${(r.filled||[]).length} · ${EN()?'pick-up people added':'ผู้รับแทนที่เพิ่ม'}: ${r.addedPickups||0}</p>
+        <button class="btn outline block" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to applications':'กลับไปรายการใบสมัคร'}</button>`);
+    }catch(e){ btn.disabled=false; err(e); } };
   window.A_appApproveDo=async(id,btn)=>{ const m=btn.closest('.modal'); const start=m.querySelector('#apAS').value;
     if(!start){ toast(EN()?'Pick the first day':'เลือกวันเริ่มเรียน'); return; }
     btn.disabled=true;

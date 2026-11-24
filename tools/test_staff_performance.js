@@ -277,7 +277,14 @@ console.log('7) 🔴 the school did not always have a clock');
     eq('...and the total is exactly what those months add up to',
       ra.absent, ms.reduce((a, m) => a + (m.absent || 0), 0));
   }
-  ok_('...and they are not in the target either', ra.required > 0 && ra.required < 60);
+  /* 🔴 was `ra.required < 60` — the same shape-not-claim mistake as above: it went red by itself on
+   * 2026-11-24, the day the working days since 1 Sep reached 60. The claim is "no day before the
+   * clock started is owed", so the ceiling is the weekdays from SEP to today — Jan–Aug would add ~170. */
+  const wdSince = from => { let n = 0; const d = new Date(from + 'T00:00:00'), end = new Date();
+    const last = new Date(Y + '-12-31T00:00:00'); const stop = end < last ? end : last;
+    for (; d <= stop; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) n++; return n; };
+  ok_('...and they are not in the target either (≤ ' + wdSince(SEP) + ' weekdays since ' + SEP + ', got ' + ra.required + ')',
+    ra.required > 0 && ra.required <= wdSince(SEP));
   const jan = (ra.months || []).find(m => m.month === Y + '-01');
   ok_('🔴 a month before the clock existed contributes nothing at all',
     !jan || (jan.required === 0 && jan.absent === 0));
