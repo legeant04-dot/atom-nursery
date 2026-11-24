@@ -2235,6 +2235,51 @@ function createAtomAPI(M, GROWTH_STD) {
       internalNote:a.InternalNote||'', decidedBy:a.DecidedBy||'', plan:a.Plan||'', consentVersion:a.ConsentVersion||'', signName:a.SignName||''}); }
     return v; }
 
+  /* ---- 🔗 รับเข้าโดยผูกกับนักเรียนที่มีอยู่ (2026-11-24, น้องกอบบุญ APP-0001) ---------------------------
+   * The office sometimes types the child in BEFORE the family's application arrives. Approving would
+   * then be refused (addStudentByAdmin's duplicate guard) and declining would tell the family "not
+   * accepted". This is the third answer: the application is tied to THAT child.
+   *   · only the child the duplicate guard itself finds (same National ID, or same name + birthday) —
+   *     the screen cannot point an application at somebody else's child
+   *   · 🔴 only EMPTY fields are filled: what the office typed wins, and Class / EnrollDate / Plan are
+   *     never touched — 💰 no start date is chosen here, so nothing is billed that was not already
+   *   · pick-up people are added, not replaced · the family's LINE id is linked · consents and papers
+   *     follow the child (Apply.gs moves the files) · a withdrawn child is refused */
+  const appExisting_ = a => dupStudent_({NationalID:a.NationalID||'', NameTH:a.ChildName, DOB:ymd(a.DOB)}) || null;
+  const appStudentFields_ = (a, d) => { const ch=d.child||{}, h=d.health||{};
+    const consent=k=>(M.consents||[]).some(c=>String(c.AppID)===String(a.AppID)&&c.Item===k&&c.Value==='YES');
+    const st={NationalID:a.NationalID||'', NameTH:a.ChildName, NameEN:a.ChildNameEN, Nickname:a.Nickname, NicknameEN:a.NicknameEN,
+      Gender:a.Gender, DOB:ymd(a.DOB), Photo:a.Photo||'', Race:ch.race||'', Nationality:ch.nationality||'', Religion:ch.religion||'',
+      Address:appAddr_(ch.address)};
+    if(consent('health')){ st.BloodType=h.blood||''; st.Allergy=h.allergy||'-'; st.MedicalHistory=appMedical_(h)||'-'; }
+    return st; };
+  const appPickups_ = d => (d.pickups||[]).filter(x=>x&&String(x.name||'').trim())
+    .map(x=>({Name:String(x.name).trim(), Phone:String(x.phone||'').trim(), Relation:String(x.relation||'').trim()}));
+  function appTieFamily_(a, s){ const sid=String(s.StudentID);
+    if(!String(s.ParentID||'').trim()) s.ParentID=a.ParentID;
+    const uids={}; [a.UserUID, ((M.parents||[]).find(x=>String(x.ParentID)===String(a.ParentID))||{}).LineUID]
+      .forEach(u=>{ u=String(u||'').trim(); if(u) uids[u]=1; });
+    Object.keys(uids).forEach(u=>{ if(!(M.userLinks||[]).some(l=>String(l.UserUID)===u&&String(l.StudentID)===sid))
+      M.userLinks.push({UserUID:u, StudentID:sid, VerifiedBy:'application', Date:todayLocal()}); });
+    (M.consents||[]).forEach(c=>{ if(String(c.AppID)===String(a.AppID)) c.StudentID=sid; });
+    (M.applicationDocs||[]).forEach(x=>{ if(String(x.AppID)===String(a.AppID)) x.StudentID=sid; }); }
+  function attachApplication_(a, p){
+    const s=appExisting_(a);
+    if(!s || String(s.StudentID)!==String(p.attachTo)) fail('BAD_INPUT','นักเรียนที่เลือกไม่ตรงกับใบสมัครนี้ (เลขบัตรประชาชน หรือชื่อ + วันเกิด)');
+    if(String(s.Status||'').toUpperCase()==='WITHDRAWN') fail('BAD_STATE','นักเรียนคนนี้ลาออกแล้ว — ผูกใบสมัครไม่ได้');
+    const d=appData_(a), st=appStudentFields_(a,d), filled=[];
+    Object.keys(st).forEach(k=>{ const v=st[k]; if(v===''||v==null) return;
+      if(String(s[k]==null?'':s[k]).trim()==='' ){ s[k]=v; filled.push(k); } });
+    const sid=String(s.StudentID); let addedPick=0;
+    appPickups_(d).forEach(pp=>{ if((M.pickupPersons||[]).some(x=>String(x.StudentID)===sid&&_nm(x.Name)===_nm(pp.Name))) return;
+      M.pickupPersons.push(Object.assign({StudentID:sid},pp)); addedPick++; });
+    appTieFamily_(a,s);
+    a.Status='ACCEPTED'; a.StudentID=sid; a.ClassName=s.Class||''; a.StartDate=ymd(s.EnrollDate); a.Plan=s.Plan||'';
+    a.ParentMessage=String(p.parentMessage||'').trim();
+    a.DecidedBy=String(p.adminId||p.staffId||''); a.DecidedAt=stampLocal(); a.UpdatedAt=a.DecidedAt;
+    logAct('approveApplication',a.AppID,a.ChildName+' → ผูกกับ '+sid+' (มีอยู่แล้ว) · เติม '+(filled.join(',')||'-')+' · ผู้รับแทน +'+addedPick,actorOf(p));
+    return Object.assign(appView_(a,true),{studentId:sid, attached:true, filled, addedPickups:addedPick}); }
+
   /* ---- 📎 ระยะ 2 — เอกสารแนบของใบสมัคร (ผอ. 2026-11-09: รูป + PDF · รับเข้าแล้วย้ายเข้าโฟลเดอร์นักเรียน ·
    * ไม่รับ/ยกเลิก → ลบหลัง 90 วัน) ------------------------------------------------------------------
    * ID cards, house registrations and birth certificates are the most sensitive files this school will
@@ -6437,7 +6482,9 @@ function createAtomAPI(M, GROWTH_STD) {
       return Object.assign(appView_(a,true),{data:appData_(a), consents:cons, signature:sig?'':(a.Image||''), signatureDocId:sig?sig.DocID:'', photo:a.Photo||'',
         docs:appDocsOf_(a.AppID).filter(d=>d.DocType!=='signature').map(appDocView_),
         parent:{parentId:par.ParentID||'', name:par.NameTH||par.Name||'', phone:par.Phone||'', rel:par.Relationship||''},
-        suggestedClass:defaultClassByAge_(a.DOB)}); },
+        suggestedClass:defaultClassByAge_(a.DOB), existing:(()=>{ if(!APP_OPEN_[a.Status]) return null; const s=appExisting_(a); if(!s) return null;
+          return {studentId:s.StudentID, name:s.NameTH||'', nick:s.Nickname||'', className:s.Class||'', enrollDate:ymd(s.EnrollDate), status:s.Status||'',
+            parentId:s.ParentID||'', sameParent:!!s.ParentID&&String(s.ParentID)===String(a.ParentID)}; })()}); },
     setApplicationVisit: p => { const a=appById_(p.appId);
       if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว');
       const at=String(p.visitAt||'').trim().replace('T',' ');
@@ -6456,31 +6503,20 @@ function createAtomAPI(M, GROWTH_STD) {
      * month billed, and an approval must never produce a bill for days before anyone said yes. */
     approveApplication: p => { const a=appById_(p.appId);
       if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว');
+      if(p.attachTo) return attachApplication_(a,p);
       const start=ymd(p.startDate);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(start)) fail('BAD_INPUT','เลือกวันเริ่มเรียน');
       if(start<todayLocal()) fail('BAD_INPUT','วันเริ่มเรียนต้องเป็นวันนี้หรือหลังจากนี้ — ระบบจะไม่เรียกเก็บย้อนหลัง');
       const cls=String(p.className||'').trim() || defaultClassByAge_(a.DOB);
       if(!cls) fail('BAD_INPUT','เลือกชั้นเรียน');
-      const d=appData_(a), ch=d.child||{}, h=d.health||{};
+      const d=appData_(a), ch=d.child||{};
       const consent=k=>(M.consents||[]).some(c=>String(c.AppID)===String(a.AppID)&&c.Item===k&&c.Value==='YES');
-      const addr=appAddr_(ch.address);
-      const student={NationalID:a.NationalID||'', NameTH:a.ChildName, NameEN:a.ChildNameEN, Nickname:a.Nickname, NicknameEN:a.NicknameEN,
-        Gender:a.Gender, DOB:ymd(a.DOB), Class:cls, Plan:String(p.plan||'').trim(), EnrollDate:start,
-        Photo:a.Photo||'', Race:ch.race||'', Nationality:ch.nationality||'', Religion:ch.religion||'', Address:addr};
-      if(consent('health')){ student.BloodType=h.blood||''; student.Allergy=h.allergy||'-'; student.MedicalHistory=appMedical_(h)||'-'; }
+      const student=Object.assign(appStudentFields_(a,d), {Class:cls, Plan:String(p.plan||'').trim(), EnrollDate:start});
       if(consent('daily')){ if(+ch.weight>0) student.Weight=+ch.weight; if(+ch.height>0) student.Height=+ch.height; }
-      const pick=(d.pickups||[]).filter(x=>x&&String(x.name||'').trim())
-        .map(x=>({Name:String(x.name).trim(), Phone:String(x.phone||'').trim(), Relation:String(x.relation||'').trim()}));
-      const r=H.addStudentByAdmin({student, pickupPersons:pick, adminId:p.adminId||p.staffId});
+      const r=H.addStudentByAdmin({student, pickupPersons:appPickups_(d), adminId:p.adminId||p.staffId});
       const sid=r.studentId; const s=studentById(sid);
       if(!s) fail('NOT_FOUND','สร้างนักเรียนไม่สำเร็จ');
-      s.ParentID=a.ParentID;
-      const uids={}; [a.UserUID, ((M.parents||[]).find(x=>String(x.ParentID)===String(a.ParentID))||{}).LineUID]
-        .forEach(u=>{ u=String(u||'').trim(); if(u) uids[u]=1; });
-      Object.keys(uids).forEach(u=>{ if(!(M.userLinks||[]).some(l=>String(l.UserUID)===u&&String(l.StudentID)===sid))
-        M.userLinks.push({UserUID:u, StudentID:sid, VerifiedBy:'application', Date:todayLocal()}); });
-      (M.consents||[]).forEach(c=>{ if(String(c.AppID)===String(a.AppID)) c.StudentID=sid; });
-      (M.applicationDocs||[]).forEach(d=>{ if(String(d.AppID)===String(a.AppID)) d.StudentID=sid; });   // 📎 Apply.gs moves the files
+      appTieFamily_(a,s);   // ParentID + the LINE id that applied · consents and papers follow (📎 Apply.gs moves the files)
       a.Status='ACCEPTED'; a.StudentID=sid; a.ClassName=cls; a.StartDate=start; a.Plan=student.Plan;
       a.ParentMessage=String(p.parentMessage||'').trim();
       a.DecidedBy=String(p.adminId||p.staffId||''); a.DecidedAt=stampLocal(); a.UpdatedAt=a.DecidedAt;
