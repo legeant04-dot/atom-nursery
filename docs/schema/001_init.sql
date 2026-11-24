@@ -1461,6 +1461,7 @@ create table if not exists students (
   "pause_from"                 text,
   "pause_to"                   text,
   "pause_reason"               text,
+  "private_insurance"          text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

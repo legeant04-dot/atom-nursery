@@ -141,7 +141,11 @@ SCHEMA[WB.MAIN] = {
                        */
                       'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote',
                       'DiscountAmount', 'DiscountUnit', 'ProrateMode', 'ProrateAmount',
-                      'PauseFrom', 'PauseTo', 'PauseReason'],
+                      'PauseFrom', 'PauseTo', 'PauseReason',
+                      /* 🛡️ THE FAMILY'S OWN INSURANCE (2026-11-25) — not the school's policy above.
+                       * One JSON cell: { has:'YES'|'NO', list:[{company, policyNo, coverage, expiry,
+                       * hotline}], at, by } — written only through atomPrivateInsClean_ (Engine.gs). */
+                      'PrivateInsurance'],
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.

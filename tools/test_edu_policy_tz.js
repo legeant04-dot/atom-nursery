@@ -214,7 +214,7 @@ console.log('\n5) 🛡️ the policy the SCHOOL bought — the parent reads it, 
     'InsuranceStatus', 'InsuranceStart', 'InsuranceSum', 'InsuranceBenefits', 'InsuranceHotline']
     .every(k => new RegExp(k + ":v\\('" + k + "'\\)").test(app)));
   ok_('the columns are declared', ['InsurancePlan', 'InsuranceSum', 'InsuranceBenefits'].every(c => new RegExp("'" + c + "'").test(cfgGs)));
-  ok_('...and topped up on save', /ensureColumns_\(sh, \[[\s\S]*?'InsuranceBenefits', 'InsuranceHotline'\]\)/.test(staffGs));
+  ok_('...and topped up on save', /ensureColumns_\(sh, \[[\s\S]*?'InsuranceBenefits', 'InsuranceHotline'[\s\S]*?\]\)/.test(staffGs));
   // the two things that both answer to the word ประกัน are named apart, so nobody merges them
   ok_('it is distinguished from the PCHI enrolment form in writing', /It is NOT the PCHI record above/.test(eng));
 }

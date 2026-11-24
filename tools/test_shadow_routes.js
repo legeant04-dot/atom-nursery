@@ -234,7 +234,7 @@ console.log('\n5) the columns exist, or a shadowed write saves nothing at all');
    * and changes nothing — which on a policy number or a qualification is indistinguishable from
    * the admin not having typed it. */
   ok_('education, on the staff routes', /ensureColumns_\(sh, \[[\s\S]*?'Education', 'EduMajor', 'EduGradDate'\]\)/.test(staffGs));
-  ok_('the school policy, on the student route', /ensureColumns_\(sh, \[[\s\S]*?'InsuranceBenefits', 'InsuranceHotline'\]\)/.test(staffGs));
+  ok_('the school policy, on the student route', /ensureColumns_\(sh, \[[\s\S]*?'InsuranceBenefits', 'InsuranceHotline'[\s\S]*?\]\)/.test(staffGs));
   ok_('the follow-up trail sheet is declared so it can be created', /ABSENCE_FOLLOWUP_LOG/.test(R('src/GasEngine.gs')));
   // handleSaveStudent copies every field it is given — no whitelist to also update
   {

@@ -93,6 +93,59 @@ function atomStaffHours_(o) {
   return res;
 }
 
+/* ===========================================================================================
+ * 🛡️ THE FAMILY'S OWN INSURANCE (ประกันส่วนตัวของนักเรียน) — asked 2026-11-25.
+ *
+ * NOT the policy the school buys (studentPolicy_, the Insurance* columns, the PCHI form). This is
+ * cover the family arranged themselves, with a company the school does not know, on terms the
+ * school cannot guess — so it is FREE TEXT: who insures the child, the number on the card, what it
+ * covers and up to how much, in the family's own words. Nothing here is computed from or billed.
+ *
+ * ONE column on STUDENTS (`PrivateInsurance`), JSON: { has:'YES'|'NO'|'', list:[{company, policyNo,
+ * coverage, expiry, hotline}], at, by }. One column rather than a table because it is read with the
+ * child and never on its own, and a new table is one more thing the move to Postgres must carry.
+ *
+ * Top level, like atomStaffHours_, because Apps Script's own writers (handleSaveStudent,
+ * handleSaveStudentSelf in Staff.gs) clean it with THIS function — two copies of "what is a valid
+ * policy" is how the parent's screen and the admin's would come to disagree.
+ *
+ *   atomPrivateIns_(raw)            → the stored value, read leniently (blank / broken → has:'')
+ *   atomPrivateInsClean_(input, by) → { ok:true, value:'<json>', ins } | { ok:false, msg }
+ * ========================================================================================== */
+var PRIVATE_INS_MAX_ = 3;
+function atomPrivateIns_(raw) {
+  var o = raw;
+  if (typeof o === 'string') { var s = o.trim(); if (!s) o = {}; else { try { o = JSON.parse(s); } catch (e) { o = {}; } } }
+  if (!o || typeof o !== 'object') o = {};
+  var str = function (v, n) { return String(v == null ? '' : v).trim().slice(0, n); };
+  var list = (Array.isArray(o.list) ? o.list : []).slice(0, PRIVATE_INS_MAX_).map(function (x) { x = x || {};
+    var ex = String(x.expiry == null ? '' : x.expiry).trim().slice(0, 10);
+    return { company: str(x.company, 120), policyNo: str(x.policyNo, 60), coverage: str(x.coverage, 1000),
+      expiry: /^\d{4}-\d{2}-\d{2}$/.test(ex) ? ex : '', hotline: str(x.hotline, 40) }; })
+    .filter(function (x) { return x.company || x.policyNo || x.coverage; });
+  var has = String(o.has || '').toUpperCase();
+  has = has === 'YES' || has === 'NO' ? has : (list.length ? 'YES' : '');
+  if (has === 'NO') list = [];
+  return { has: has, list: list, at: str(o.at, 19), by: str(o.by, 60) };
+}
+function atomPrivateInsClean_(input, by, at) {
+  var src = input;
+  if (typeof src === 'string') { try { src = src.trim() ? JSON.parse(src) : {}; } catch (e) { return { ok: false, msg: 'ข้อมูลประกันส่วนตัวอ่านไม่ได้' }; } }
+  src = src || {};
+  var rawList = Array.isArray(src.list) ? src.list : [];
+  if (rawList.length > PRIVATE_INS_MAX_) return { ok: false, msg: 'กรอกประกันส่วนตัวได้ไม่เกิน ' + PRIVATE_INS_MAX_ + ' กรมธรรม์' };
+  var ins = atomPrivateIns_({ has: src.has, list: rawList });
+  if (ins.has === 'YES') {
+    if (!ins.list.length) return { ok: false, msg: 'เลือก "มีประกันส่วนตัว" แล้ว — กรุณากรอกชื่อบริษัทประกันและความคุ้มครอง' };
+    for (var i = 0; i < ins.list.length; i++) {
+      if (!ins.list[i].company) return { ok: false, msg: 'ประกันรายการที่ ' + (i + 1) + ': กรุณากรอกชื่อบริษัทประกัน' };
+      if (!ins.list[i].coverage) return { ok: false, msg: 'ประกันรายการที่ ' + (i + 1) + ': กรุณากรอกความคุ้มครอง / วงเงิน' };
+    }
+  }
+  ins.at = String(at || '').slice(0, 19); ins.by = String(by || '').slice(0, 60);
+  return { ok: true, ins: ins, value: ins.has ? JSON.stringify(ins) : '' };
+}
+
 function createAtomAPI(M, GROWTH_STD) {
   const cfg = M.config;
   const p2 = n => String(n).padStart(2,'0');
@@ -350,6 +403,15 @@ function createAtomAPI(M, GROWTH_STD) {
    * Every field is a string, blank when unset; the screens print '-' for a blank rather than an
    * empty line, which is how the school's own records read.
    */
+  /* 🛡️ the family's own insurance (atomPrivateIns_ above) — cleaned once, refused in Thai */
+  const privateInsOrFail_ = (v, by) => { const r=atomPrivateInsClean_(v, by, stampLocal());
+    if(!r.ok) fail('BAD_INPUT', r.msg); return r.value; };
+  /* what each reader is given. A teacher at a hospital door needs WHO insures the child, WHAT it
+   * covers and the number to ring — not the policy number, the same line the school drew for its own
+   * policy (studentProfile `care`). The admin and the family see the whole entry. */
+  const privateInsView_ = (s, full) => { const x=atomPrivateIns_(s&&s.PrivateInsurance); const d=ymd(todayLocal());
+    return { has:x.has, at:x.at, list:x.list.map(it=>Object.assign({company:it.company, coverage:it.coverage, hotline:it.hotline,
+      expiry:it.expiry, expired:!!(it.expiry && d>it.expiry)}, full?{policyNo:it.policyNo}:{})) }; };
   function studentPolicy_(s, onDate){ s=s||{};
     const g=k=>String(s[k]==null?'':s[k]).trim();
     const p={ plan:g('InsurancePlan'), type:g('InsuranceType'),
@@ -1082,6 +1144,45 @@ function createAtomAPI(M, GROWTH_STD) {
         const take=Math.min(left, Number(c.Amount||0)); out.byCharge[c.ChargeID]=take; left-=take; });
     out.unused=left;                                  // stops at zero — it does not carry forward
     return out; }
+
+  /* 💰 WHAT issueBill WOULD PUT ON A BILL — one function, so the first-bill screen (billQuote) shows the
+   * figure the bill will actually carry. `custom` = the admin typed an amount or the lines by hand; then
+   * none of the refusals apply and the amount is theirs. Returns { refuse:[code,msg] } or the bill. */
+  function issueQuote_(s, month, p){ const custom = p.amount!=null || !!p.items;
+    const refuse = (code, msg) => ({ refuse:[code, msg] });
+    const plan=studentPlan(s); const planPrice=plan.price||0; const disc=studentDiscount_(s, planPrice);
+    // no package and no custom amount would silently issue a 0-baht bill; say so instead
+    if(!custom && planPrice<=0) return refuse('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้เลือกแพ็กเกจ — กรุณาตั้งแพ็กเกจก่อนออกบิล');
+    // billing follows the child's real START DATE, not the day their record was created
+    if(!custom && !enrolledBy_(s, month))
+      return refuse('NOT_ENROLLED_YET','นักเรียนคนนี้เริ่มเรียน '+enrolDate_(s)+' — ยังไม่ถึงเดือนที่ต้องเรียกเก็บ');
+    // a child on temporary leave for the whole month is not charged for it
+    if(!custom && pausedWholeMonth_(s, month))
+      return refuse('STUDENT_PAUSED','นักเรียนคนนี้ลาชั่วคราวตลอดเดือนนี้ — ไม่เรียกเก็บค่าเทอม');
+    /* ALREADY PAID FOR, MONTHS AGO.
+     *
+     * A family who pays 6 months up front has bought this month's TUITION, and this handler issues
+     * exactly that. The bill netted to zero (payments credits it back), so nobody was overcharged
+     * — but it was still a bill, it still went out with notifyBills, and being asked to pay for
+     * something you paid for in advance is the kind of thing that costs a school its credibility
+     * even when the arithmetic is right.
+     *
+     * Food, activity and special-class charges are NOT covered by a prepay and are NOT part of
+     * this bill — they are studentCharges rows, issued and paid separately, so refusing here takes
+     * nothing away from the school. `amount`/`items` (an admin writing a bill by hand) still go
+     * through: the rule is "do not re-bill the tuition automatically", not "never bill".
+     */
+    if(!custom && monthTuitionPrepaid_(p.studentId, month)){
+      const _pi=prepayInfo_(p.studentId, month)||{};
+      return refuse('PREPAID_MONTH','นักเรียนคนนี้ชำระค่าเทอมล่วงหน้าแล้ว'+(_pi.months?' '+_pi.months+' เดือน':'')+
+        (_pi.index?' (เดือนที่ '+_pi.index+'/'+(_pi.months||_pi.covered.length)+')':'')+' — ไม่ต้องออกบิลซ้ำ'); }
+    // custom amount → respect as-is; default → (plan price − the student's monthly discount),
+    // then the mid-month rule for the month they actually start (see tuitionForMonth_)
+    const pr=tuitionForMonth_(s, month, Math.max(0, planPrice-disc));
+    const amount=p.amount!=null?Number(p.amount):pr.amount;
+    const prNote=(p.amount==null && pr.prorated) ? ` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})` : '';
+    const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')+prNote); const items=p.items||[[label,amount]];
+    return { amount, label, items, prorated:!!(p.amount==null && pr.prorated), planPrice, discount:disc }; }
 
   function billTuition_(b){ if(!b) return 0;
     let items=b.Items;
@@ -2210,7 +2311,10 @@ function createAtomAPI(M, GROWTH_STD) {
   // what the screen sent, reduced to known sections — and the health answers dropped when item 1 is
   // declined, weight/height when item 2 is: "ข้อที่ไม่ยินยอมจะไม่ถูกบันทึก" (7.3) is enforced here
   function appCleanData_(raw, cs){ const d=(raw&&typeof raw==='object')?raw:{}; const out={};
-    ['child','father','mother','regAddress','pickups','health','docs','wish'].forEach(k=>{ if(d[k]!==undefined) out[k]=d[k]; });
+    ['child','father','mother','regAddress','pickups','health','docs','wish','insurance'].forEach(k=>{ if(d[k]!==undefined) out[k]=d[k]; });
+    // 🛡️ the family's own insurance, cleaned like every other write of it (atomPrivateIns_)
+    if(out.insurance!==undefined){ const r=atomPrivateInsClean_(out.insurance,'',''); if(!r.ok) fail('BAD_INPUT', r.msg);
+      if(r.ins.has) out.insurance={has:r.ins.has, list:r.ins.list}; else delete out.insurance; }
     out.child=Object.assign({},out.child||{}); out.health=Object.assign({},out.health||{});
     if(cs.health!==true){ ['blood','rh','infect','infectNote','allergyHas','allergy','chronicHas','chronic','medication'].forEach(k=>{ delete out.health[k]; }); }
     if(cs.daily!==true){ delete out.child.weight; delete out.child.height; }
@@ -2252,6 +2356,8 @@ function createAtomAPI(M, GROWTH_STD) {
       Gender:a.Gender, DOB:ymd(a.DOB), Photo:a.Photo||'', Race:ch.race||'', Nationality:ch.nationality||'', Religion:ch.religion||'',
       Address:appAddr_(ch.address)};
     if(consent('health')){ st.BloodType=h.blood||''; st.Allergy=h.allergy||'-'; st.MedicalHistory=appMedical_(h)||'-'; }
+    // 🛡️ the family's own insurance, as they gave it on the form ('ไม่มี' is kept too — it is an answer)
+    if(d.insurance&&d.insurance.has){ const r=atomPrivateInsClean_(d.insurance,'application',stampLocal()); if(r.ok&&r.value) st.PrivateInsurance=r.value; }
     return st; };
   const appPickups_ = d => (d.pickups||[]).filter(x=>x&&String(x.name||'').trim())
     .map(x=>({Name:String(x.name).trim(), Phone:String(x.phone||'').trim(), Relation:String(x.relation||'').trim()}));
@@ -2948,38 +3054,8 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin issues a bill for one student. Pass paid:true to record it as ALREADY PAID (e.g. collected in advance
     // for a future month → that month shows "ชำระแล้ว"); paidDate/method optional, defaults today/cash.
     issueBill: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); const month=p.month||todayLocal().slice(0,7);
-      const plan=studentPlan(s); const planPrice=plan.price||0; const disc=studentDiscount_(s, planPrice);
-      // no package and no custom amount would silently issue a 0-baht bill; say so instead
-      if(p.amount==null && !p.items && planPrice<=0) fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้เลือกแพ็กเกจ — กรุณาตั้งแพ็กเกจก่อนออกบิล');
-      // billing follows the child's real START DATE, not the day their record was created
-      if(p.amount==null && !p.items && !enrolledBy_(s, month))
-        fail('NOT_ENROLLED_YET','นักเรียนคนนี้เริ่มเรียน '+enrolDate_(s)+' — ยังไม่ถึงเดือนที่ต้องเรียกเก็บ');
-      // a child on temporary leave for the whole month is not charged for it
-      if(p.amount==null && !p.items && pausedWholeMonth_(s, month))
-        fail('STUDENT_PAUSED','นักเรียนคนนี้ลาชั่วคราวตลอดเดือนนี้ — ไม่เรียกเก็บค่าเทอม');
-      /* ALREADY PAID FOR, MONTHS AGO.
-       *
-       * A family who pays 6 months up front has bought this month's TUITION, and this handler issues
-       * exactly that. The bill netted to zero (payments credits it back), so nobody was overcharged
-       * — but it was still a bill, it still went out with notifyBills, and being asked to pay for
-       * something you paid for in advance is the kind of thing that costs a school its credibility
-       * even when the arithmetic is right.
-       *
-       * Food, activity and special-class charges are NOT covered by a prepay and are NOT part of
-       * this bill — they are studentCharges rows, issued and paid separately, so refusing here takes
-       * nothing away from the school. `amount`/`items` (an admin writing a bill by hand) still go
-       * through: the rule is "do not re-bill the tuition automatically", not "never bill".
-       */
-      if(p.amount==null && !p.items && monthTuitionPrepaid_(p.studentId, month)){
-        const _pi=prepayInfo_(p.studentId, month)||{};
-        fail('PREPAID_MONTH','นักเรียนคนนี้ชำระค่าเทอมล่วงหน้าแล้ว'+(_pi.months?' '+_pi.months+' เดือน':'')+
-          (_pi.index?' (เดือนที่ '+_pi.index+'/'+(_pi.months||_pi.covered.length)+')':'')+' — ไม่ต้องออกบิลซ้ำ'); }
-      // custom amount → respect as-is; default → (plan price − the student's monthly discount),
-      // then the mid-month rule for the month they actually start (see tuitionForMonth_)
-      const pr=tuitionForMonth_(s, month, Math.max(0, planPrice-disc));
-      const amount=p.amount!=null?Number(p.amount):pr.amount;
-      const prNote=(p.amount==null && pr.prorated) ? ` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})` : '';
-      const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')+prNote); const items=p.items||[[label,amount]];
+      const q=issueQuote_(s, month, p); if(q.refuse) fail(q.refuse[0], q.refuse[1]);
+      const amount=q.amount, items=q.items;
       const paid=!!p.paid; const paidDate=p.paidDate||todayLocal(); const method=p.method||(paid?'cash':'');
       let b=M.payments.find(x=>x.StudentID===p.studentId&&ym(x.Month)===month);
       const fields={Items:items,Amount:amount,Status:paid?'PAID':'UNPAID',SlipAmount:paid?amount:0,VerifiedStatus:paid?'CONFIRMED':'',PaidDate:paid?paidDate:'',PaymentMethod:method,Note:p.note||'',
@@ -2988,6 +3064,23 @@ function createAtomAPI(M, GROWTH_STD) {
       else { b=Object.assign({BillingID:'BL-'+month+'-'+p.studentId,StudentID:p.studentId,Month:month,OTRollover:0,DueDate:billDueDate(studentById(p.studentId),month),SlipUrl:'',TransactionDate:paid?stampLocal():''},fields); M.payments.push(b); }
       logAct('issueBill',b.BillingID,month+' '+amount+(paid?' (ชำระล่วงหน้า)':''),actorOf(p));
       return b; },
+    /* 🧾 THE FIRST BILL, LOOKED AT BEFORE IT IS SENT (2026-11-25) — "เมื่อ Admin อนุมัติและกำลังจะเพิ่มบิล
+     * เรียกเก็บ ต้องสามารถเพิ่มค่าใช้จ่ายอื่นๆ เช่นค่าแรกเข้า ส่วนลด". The screen shows the tuition line the
+     * bill WILL carry, so it asks the same function issueBill uses (issueQuote_) rather than working the
+     * mid-month rule out a second time in the browser — two answers to "how much" is how a family gets
+     * shown one figure and billed another. Reads only. Also says whether this month already has a bill
+     * (issuing again would OVERWRITE it — the screen must not offer that silently) and what extra
+     * charges are already on the month, because the discount comes off the month's total. */
+    billQuote: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); const month=ym(p.month||todayLocal().slice(0,7));
+      const q=issueQuote_(s, month, {studentId:p.studentId});
+      const b=(M.payments||[]).find(x=>String(x.StudentID)===String(p.studentId)&&ym(x.Month)===month)||null;
+      const ch=(M.studentCharges||[]).filter(c=>String(c.StudentID)===String(p.studentId)&&ym(c.Month)===month)
+        .map(c=>({chargeId:c.ChargeID, label:c.Label, amount:Number(c.Amount||0), status:c.Status||''}));
+      return { studentId:String(p.studentId), month, enrolDate:enrolDate_(s),
+        tuition: q.refuse ? null : {amount:q.amount, label:q.label, prorated:q.prorated, planPrice:q.planPrice, discount:q.discount},
+        refuse: q.refuse ? {code:q.refuse[0], message:q.refuse[1]} : null,
+        existing: b ? {billingId:b.BillingID, amount:Number(b.Amount||0), status:b.Status||''} : null,
+        charges: ch }; },
     // Admin: issue this month's bill for SEVERAL selected students at once (each = tuition − discount).
     // The parent then sees each child's bill and can pay them combined (one slip) or separately.
     issueBillsFor: p => { const month=p.month||todayLocal().slice(0,7); const ids=Array.isArray(p.studentIds)?p.studentIds.filter(Boolean):[];
@@ -6068,7 +6161,9 @@ function createAtomAPI(M, GROWTH_STD) {
          * `!!s.InsuranceHas` stayed true for ever: a teacher at that door would have been told the
          * child was insured on the strength of a tick nobody had revisited since last year. */
         insuranceHas: studentPolicy_(s).has,
-        insuranceExpired: studentPolicy_(s).expired
+        insuranceExpired: studentPolicy_(s).expired,
+        // 🛡️ the family's own cover — company, what it covers, the number to ring (no policy number here)
+        privateIns: privateInsView_(s, false)
       };
       if(!full) return Object.assign({scope:'care'}, care);
       const parents=(M.parents||[]).filter(x=>String(x.ParentID)===String(s.ParentID) ||
@@ -6084,7 +6179,7 @@ function createAtomAPI(M, GROWTH_STD) {
         /* The whole policy, admin scope only. A teacher keeps being told THAT there is cover and
          * never the number — the rule the `care` block above was written for, and the school did not
          * ask to change it. The family reads their own policy through insuranceStatus. */
-        policy:studentPolicy_(s),
+        policy:studentPolicy_(s), privateIns:privateInsView_(s, true),
         insurancePolicyNo:s.InsurancePolicyNo||'', insuranceCompany:s.InsuranceCompany||'',
         insuranceExpiry:ymd(s.InsuranceExpiry||''), insuranceCardImage:s.InsuranceCardImage||'',
         driveFolderUrl:s.DriveFolderUrl||'', createdDate:ymd(s.CreatedDate||''),
@@ -7308,7 +7403,7 @@ function createAtomAPI(M, GROWTH_STD) {
           /* WHETHER it is linked, never the id itself. GoogleSub is a stable identifier for a person
            * across every site they use it on; the screen only needs a tick. */
           GoogleLinked: !!pa.GoogleSub, Photo:pa.Photo, LinePictureUrl:pa.LinePictureUrl, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
-      return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo })) }; },
+      return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo, PrivateInsurance:atomPrivateIns_(s.PrivateInsurance) })) }; },
     // edit a parent that is either the caller or a co-parent of the caller's child (server validates); whitelisted.
     saveFamilyParent: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const tid=p.targetParentId||p.parentId;
       const pa=M.parents.find(x=>x.ParentID===tid); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
@@ -7324,13 +7419,19 @@ function createAtomAPI(M, GROWTH_STD) {
       /* 'RH' left this whitelist on 2026-09-12 when the school dropped Rh from the blood field.
        * Taking it OUT of the writable set is the point: the column and every value already in it
        * stay exactly as they are, and nothing in the app can change or blank them from now on. */
-      const d=p.data||{}; ['Nickname','NicknameEN','BloodType','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
+      const d=p.data||{}; ['Nickname','NicknameEN','BloodType','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; });
+      /* 🛡️ the family's own insurance — theirs to keep up to date. A TEACHER reaches this handler too
+       * (for their own class) and is not given this one field: they read it, they do not rewrite it. */
+      if(d.PrivateInsurance!==undefined && !p.staffId) s.PrivateInsurance=privateInsOrFail_(d.PrivateInsurance, p.parentId||'parent');
+      return {ok:true, studentId:p.studentId}; },
     saveParent: p => { const d=Object.assign({},p.data||{});
       if(d.Email!==undefined) d.Email=engEmail_(M.parents, d.Email, 'ParentID', p.parentId);
       if(p.parentId){ const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); Object.assign(pa,d); return pa; }
       const id=nextSeqId_(M.parents,'ParentID','PAR',3); const rec=Object.assign({ParentID:id},d); M.parents.push(rec); return rec; },
     deleteParent: p => { const i=M.parents.findIndex(x=>x.ParentID===p.parentId); if(i<0)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); M.parents.splice(i,1); return {ok:true}; },
-    saveStudent: p => { const d=p.data||{}; const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); Object.assign(s,d); return s; },
+    saveStudent: p => { const d=Object.assign({},p.data||{}); const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(d.PrivateInsurance!==undefined) d.PrivateInsurance=privateInsOrFail_(d.PrivateInsurance, p.adminId||p.staffId||'admin');
+      Object.assign(s,d); return s; },
 
     holidays: () => M.holidays.slice().sort((a,b)=>a.Date.localeCompare(b.Date)),
     // blank times = the whole day. cfgTime_ turns anything unreadable into blank rather than into
@@ -7801,7 +7902,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * different rule from the one the school runs. Kept in step deliberately: two lists that decide
      * what may be written are one list that is sometimes wrong. */
     setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,GpsAccuracySlack:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1,ContributionMatchRate:1,
-      ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1,ApplyRetentionYears:1,ApplyPdpaContact:1,RequireSalarySlip:1}; NOTIFY_KEYS_.forEach(k=>{ W[k]=1; }); const v=p.values||{};
+      ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1,ApplyRetentionYears:1,ApplyPdpaContact:1,ChargePresets:1,RequireSalarySlip:1}; NOTIFY_KEYS_.forEach(k=>{ W[k]=1; }); const v=p.values||{};
       // 'true'/'false' are not numbers, so they pass through as the strings the rest of the app reads
       Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=(v[k]===''||isNaN(Number(v[k])))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January
@@ -8074,6 +8175,16 @@ function createAtomAPI(M, GROWTH_STD) {
     // and are edited from the Packages screen — they used to be hard-coded here, which meant a change
     // of policy needed a release. Defaults match the school's current sheet: 3→5% · 6→10% · 12→15%.
     prepayTiers: () => prepayTiers_(),
+    /* 🧾 THE SCHOOL'S USUAL EXTRA ITEMS (ค่าแรกเข้า · มัดจำ · ค่าอุปกรณ์ · ส่วนลด …), with the amount the
+     * ผอ. set — a shortcut on the first-bill screen, nothing more: tapping one fills a line the admin can
+     * still change or delete, and nothing is ever billed from this list on its own. Stored as JSON in
+     * SCHOOL_CONFIG.ChargePresets (setSchoolConfig). Read leniently: a row without a name or with a
+     * non-positive amount is dropped rather than shown as a ฿0 line someone might send. */
+    chargePresets: () => { let v=cfg.ChargePresets;
+      if(typeof v==='string'){ try{ v=v.trim()?JSON.parse(v):[]; }catch(e){ v=[]; } }
+      return (Array.isArray(v)?v:[]).map(x=>({ label:String((x&&x.label)||'').trim().slice(0,80),
+          amount:Math.round(Math.abs(Number(x&&x.amount)||0)*100)/100, discount:!!(x&&x.discount) }))
+        .filter(x=>x.label && x.amount>0).slice(0,20); },
     savePrepayTiers: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const tiers=(Array.isArray(p.tiers)?p.tiers:[]).map(x=>({months:Number(x.months)||0,discount:Math.max(0,Math.min(100,Number(x.discount)||0))}))
         .filter(x=>x.months>0).sort((a,b)=>a.months-b.months);

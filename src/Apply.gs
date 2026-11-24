@@ -58,6 +58,9 @@ function handleRejectApplication(p) {
 }
 
 function handleApproveApplication(p) {
+  /* 🛡️ the family's own insurance rides on the new student row (2026-11-25). On a workbook that predates
+   * the column, writeRows_ would drop it without a word — the same trap handleSaveStudent guards. */
+  try { ensureColumns_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), ['PrivateInsurance']); } catch (e) {}
   var res = engineDispatch_('approveApplication', p);
   try { applyMoveDocsToStudent_(res.appId, res.studentId); } catch (e) {}
   try {

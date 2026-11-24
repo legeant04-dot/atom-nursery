@@ -146,7 +146,9 @@ console.log('\n1) the admin sees the record the family filled in');
        * list is "names that differ", not "things we stopped returning": the block below checks every
        * one of them really does come back, so the coverage this test guarantees is not weakened. */
       insuranceplan: 1, insurancetype: 1, insuredname: 1, insuranceowner: 1, insurancestatus: 1,
-      insurancestart: 1, insurancesum: 1, insurancebenefits: 1, insurancehotline: 1 }[k]);
+      insurancestart: 1, insurancesum: 1, insurancebenefits: 1, insurancehotline: 1,
+      /* the FAMILY'S own insurance (2026-11-25) comes back parsed, as `privateIns` (privateInsView_) */
+      privateinsurance: 1 }[k]);
   eq('every column the registration form fills is in the record', missing, []);
   // ...and the nine that moved into `policy` are all genuinely there
   eq('the school-bought policy comes back as one object', Object.keys(d.policy || {}).sort(),

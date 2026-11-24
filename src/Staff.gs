@@ -263,8 +263,16 @@ function handleSaveStudent(p) {
     // the school-bought policy the parent reads when making a claim (2026-09-12) — same rule again:
     // no column, no error, no data
     'InsurancePlan', 'InsuranceType', 'InsuredName', 'InsuranceOwner', 'InsuranceStatus',
-    'InsuranceStart', 'InsuranceSum', 'InsuranceBenefits', 'InsuranceHotline']); } catch (e) {}
+    'InsuranceStart', 'InsuranceSum', 'InsuranceBenefits', 'InsuranceHotline',
+    // 🛡️ the family's OWN insurance (2026-11-25) — JSON, cleaned by atomPrivateInsClean_ (Engine.gs)
+    'PrivateInsurance']); } catch (e) {}
   var row = mapName_(p.data || {});
+  if (row.PrivateInsurance !== undefined) {
+    var pi = atomPrivateInsClean_(row.PrivateInsurance, String(p.adminId || p.staffId || 'admin'),
+      nowStr_());
+    if (!pi.ok) throw apiError_('BAD_INPUT', pi.msg);
+    row.PrivateInsurance = pi.value;
+  }
   /* ONLY 1–5, AND ONLY EVER A CLEAN LIST. This decides whether a child is expected at school, so
    * whatever the form sends is normalised here rather than trusted: numbers outside Monday–Friday
    * are dropped (the weekend is already closed for everyone), duplicates collapse, and the order is
@@ -631,6 +639,7 @@ function handleSetSchoolConfig(p) {
   var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, GpsAccuracySlack: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1, BigCleaningIn: 1, BigCleaningOut: 1,
     ParentPrepayEnabled: 1, DigestMorning: 1, DigestEvening: 1, RequireSalarySlip: 1,
     ApplyRetentionYears: 1, ApplyPdpaContact: 1,                // 📝 the two blanks in the application's PDPA text
+    ChargePresets: 1,                                           // 🧾 usual extra items on the first bill (JSON; engine chargePresets reads it)
     ContributionMatchRate: 1 };                                 // เงินสมทบ: school's share ÷ teacher's share
   /* 🔴 THE PER-TOPIC LINE SWITCHES ARE ADDED FROM THE TOPIC TABLE, NOT TYPED OUT AGAIN.
    *
@@ -885,6 +894,17 @@ function handleSaveStudentSelf(p) {
   var d = p.data || {}, WHITE = ['Nickname', 'NicknameEN', 'BloodType', 'Allergy', 'MedicalHistory', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Photo'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  /* 🛡️ THE FAMILY'S OWN INSURANCE (2026-11-25) — the family keeps it up to date from ข้อมูลของฉัน. A
+   * teacher's session reaches this handler too (for their own class) and is NOT given this field:
+   * they read it on the child's card, they do not rewrite a family's policy. Dropped, not refused —
+   * the same reasoning as GeoExempt in handleSaveStudent. Cleaned by the engine's own function. */
+  if (d.PrivateInsurance !== undefined && !p.staffId) {
+    try { ensureColumns_(sh, ['PrivateInsurance']); } catch (e) {}
+    var pi = atomPrivateInsClean_(d.PrivateInsurance, String(p.parentId || 'parent'),
+      nowStr_());
+    if (!pi.ok) throw apiError_('BAD_INPUT', pi.msg);
+    row.PrivateInsurance = pi.value;
+  }
   updateRow_(sh, st._row, row);
   recCacheBust_('STUDENTS');
   return { ok: true, studentId: p.studentId };

@@ -195,7 +195,11 @@ console.log('3) 🔴 CONTROL — the badge must not become a lock');
 
   /* ...and the server side of the same decision: issueBill must NOT have grown an EndDate refusal,
    * or the tickable box would fail on submit and the badge would be a lock after all. */
-  const ib = /issueBill: p => \{[\s\S]*?return b; \},/.exec(engine)[0];
+  /* issueBill's decision moved into issueQuote_ (2026-11-25) so the first-bill screen (billQuote) shows the
+   * very figure the bill will carry — read both, the rule is the same rule wherever it now lives */
+  const ib = /issueBill: p => \{[\s\S]*?return b; \},/.exec(engine)[0]
+    + /function issueQuote_\(s, month, p\)\{[\s\S]*?discount:disc \}; \}/.exec(engine)[0];
+  ok_('issueBill asks issueQuote_', /issueQuote_\(s, month, p\)/.test(ib));
   ok_('issueBill still refuses a prepaid month', /PREPAID_MONTH/.test(ib));
   ok_('...and a pause covering the whole month', /STUDENT_PAUSED/.test(ib));
   ok_('🔴 ...and does NOT refuse a child past their last day', !/ENDED|endedBeforeMonth_|studentEnded_/.test(ib));

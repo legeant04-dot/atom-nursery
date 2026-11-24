@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.514'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.515'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -480,6 +480,71 @@
     if(pv&&url) pv.innerHTML=`<img src="${url}" onclick="IMG_zoom('${url}')" style="width:120px;border-radius:8px;object-fit:cover;cursor:zoom-in"/>`; };
   // read a picked+compressed photo from a form; returns '' if none picked (caller keeps the old value)
   const photoVal = (scope,id)=>{ const el=(scope||document).querySelector('#'+id); return el&&el.dataset&&el.dataset.url?el.dataset.url:''; };
+  /* 🛡️ THE FAMILY'S OWN INSURANCE (ประกันส่วนตัว, 2026-11-25) — one editor and one card, used by the
+   * application form, the parent's ข้อมูลของฉัน and the admin's student form, so the three cannot ask
+   * for different things. Free text on purpose: the school does not know the company or the terms.
+   * The server cleans and checks it again (atomPrivateInsClean_) — this only keeps the form honest. */
+  const PINS_MAX = 3;
+  const pinsParse = v => { let o=v; if(typeof o==='string'){ try{ o=o.trim()?JSON.parse(o):{}; }catch(e){ o={}; } }
+    o=(o&&typeof o==='object')?o:{}; const list=(Array.isArray(o.list)?o.list:[]).slice(0,PINS_MAX).map(x=>Object.assign({company:'',policyNo:'',coverage:'',expiry:'',hotline:''},x||{}));
+    const has=String(o.has||'').toUpperCase(); return {has:(has==='YES'||has==='NO')?has:(list.length?'YES':''), list, at:o.at||''}; };
+  /* pfx: a unique id prefix · ins: the stored value (any shape) · o.req: the YES/NO answer is required */
+  const pinsEditor = (pfx, ins, o) => { const x=pinsParse(ins); o=o||{}; if(x.has==='YES'&&!x.list.length) x.list=[{}];
+    const fld=(i,k,label,v,extra)=>`<label class="field"><span>${esc(label)}</span>${extra==='ta'
+      ? `<textarea id="${pfx}_pi${i}_${k}" rows="3" maxlength="1000" placeholder="${esc(EN()?'e.g. OPD up to ฿2,000/visit · IPD up to ฿50,000 · accidents ฿100,000':'เช่น ผู้ป่วยนอก (OPD) ครั้งละไม่เกิน 2,000 บาท · ผู้ป่วยใน (IPD) ไม่เกิน 50,000 บาท · อุบัติเหตุ 100,000 บาท')}">${esc(v||'')}</textarea>`
+      : `<input id="${pfx}_pi${i}_${k}" ${extra==='date'?'type="date"':extra==='tel'?'type="tel" inputmode="tel" maxlength="40"':'maxlength="'+(k==='company'?120:60)+'"'} value="${esc(v||'')}"/>`}</label>`;
+    const row=(it,i)=>`<div class="card pins-row" style="padding:var(--sp-2);background:var(--surface-2)">
+      <div class="spread"><b style="font-size:var(--fs-1)">${EN()?'Policy':'กรมธรรม์'} ${i+1}</b>${x.list.length>1?`<button type="button" class="btn sm pink" onclick="PINS_del('${pfx}',${i})" aria-label="${EN()?'Remove':'ลบ'}">${ic('trash')}</button>`:''}</div>
+      ${fld(i,'company',(EN()?'Insurance company':'บริษัทประกัน')+' *',it.company)}
+      ${fld(i,'policyNo',EN()?'Policy / card number':'เลขกรมธรรม์ / เลขบัตร',it.policyNo)}
+      ${fld(i,'coverage',(EN()?'What it covers, and up to how much':'ความคุ้มครอง / วงเงิน')+' *',it.coverage,'ta')}
+      <div class="grid2">${fld(i,'expiry',EN()?'Expires (if known)':'วันหมดอายุ (ถ้าทราบ)',String(it.expiry||'').slice(0,10),'date')}${fld(i,'hotline',EN()?'Claims phone':'เบอร์ติดต่อเคลม',it.hotline,'tel')}</div></div>`;
+    return `<div id="${pfx}_pins" data-n="${x.list.length}">
+      <div class="seg" style="margin:0 0 var(--sp-2)">${[['NO','ไม่มี','No'],['YES','มี','Yes']].map(([v,th,en])=>`<button type="button" class="${x.has===v?'active':''}" onclick="PINS_has('${pfx}','${v}')">${esc(EN()?en:th)}</button>`).join('')}</div>
+      <input type="hidden" id="${pfx}_pins_has" value="${esc(x.has)}"/>
+      <div id="${pfx}_pins_list" ${x.has==='YES'?'':'hidden'}>${x.list.map(row).join('')}
+        ${x.list.length<PINS_MAX?`<button type="button" class="btn sm outline block" onclick="PINS_add('${pfx}')">+ ${EN()?'Add another policy':'เพิ่มกรมธรรม์'}</button>`:''}
+        <small class="muted" style="font-size:var(--fs-1)">* ${EN()?'required when you answer Yes':'จำเป็นเมื่อเลือก "มี"'}</small></div></div>`; };
+  /* read the editor back → { has, list } (blank rows dropped) */
+  const pinsRead = pfx => { const g=(i,k)=>{ const e=document.getElementById(pfx+'_pi'+i+'_'+k); return e?String(e.value).trim():''; };
+    const box=document.getElementById(pfx+'_pins'); if(!box) return undefined;
+    const has=(document.getElementById(pfx+'_pins_has')||{}).value||''; const n=Number(box.dataset.n)||0; const list=[];
+    for(let i=0;i<n;i++){ const it={company:g(i,'company'),policyNo:g(i,'policyNo'),coverage:g(i,'coverage'),expiry:g(i,'expiry'),hotline:g(i,'hotline')};
+      if(it.company||it.policyNo||it.coverage||it.expiry||it.hotline) list.push(it); }
+    return {has, list:has==='YES'?list:[]}; };
+  /* the same rule the server applies, said before the trip */
+  const pinsProblem = v => { if(!v||v.has!=='YES') return '';
+    if(!v.list.length) return EN()?'You answered Yes — add the insurance company and what it covers':'เลือก "มี" แล้ว — กรุณากรอกบริษัทประกันและความคุ้มครอง';
+    for(let i=0;i<v.list.length;i++){ if(!v.list[i].company) return (EN()?'Policy ':'กรมธรรม์ ')+(i+1)+': '+(EN()?'insurance company is required':'กรุณากรอกบริษัทประกัน');
+      if(!v.list[i].coverage) return (EN()?'Policy ':'กรมธรรม์ ')+(i+1)+': '+(EN()?'what it covers is required':'กรุณากรอกความคุ้มครอง / วงเงิน'); }
+    return ''; };
+  /* what was on file when the form opened, in pinsRead's own shape — so a save sends the field only
+   * when somebody actually changed it, and never blanks a family's entry the screen did not load */
+  const pinsNorm = v => { const x=pinsParse(v); const t=s=>String(s==null?'':s).trim();
+    return {has:x.has, list:x.has==='YES'?x.list.map(it=>({company:t(it.company),policyNo:t(it.policyNo),coverage:t(it.coverage),expiry:t(it.expiry).slice(0,10),hotline:t(it.hotline)}))
+      .filter(it=>it.company||it.policyNo||it.coverage||it.expiry||it.hotline):[]}; };
+  const pinsInit = (pfx, v) => `<input type="hidden" id="${pfx}_pins_init" value="${esc(JSON.stringify(pinsNorm(v)))}"/>`;
+  const pinsChanged = pfx => { const r=pinsRead(pfx); const i=document.getElementById(pfx+'_pins_init'); return !!r && (!i || JSON.stringify(r)!==i.value); };
+  // re-draw the editor keeping what was typed (add / remove / switch yes-no)
+  const pinsRedraw = (pfx, v) => { const box=document.getElementById(pfx+'_pins'); if(box) box.outerHTML=pinsEditor(pfx, v); };
+  window.PINS_has=(pfx,h)=>{ const cur=pinsReadAll_(pfx); pinsRedraw(pfx,{has:h,list:h==='YES'?(cur.length?cur:[{}]):[]}); if(window.PINS_onchange) PINS_onchange(pfx); };
+  window.PINS_add=(pfx)=>{ const cur=pinsReadAll_(pfx); if(cur.length>=PINS_MAX) return; cur.push({}); pinsRedraw(pfx,{has:'YES',list:cur}); if(window.PINS_onchange) PINS_onchange(pfx); };
+  window.PINS_del=(pfx,i)=>{ const cur=pinsReadAll_(pfx); cur.splice(i,1); pinsRedraw(pfx,{has:'YES',list:cur.length?cur:[{}]}); if(window.PINS_onchange) PINS_onchange(pfx); };
+  // every row as typed, blanks included — for re-drawing only
+  function pinsReadAll_(pfx){ const box=document.getElementById(pfx+'_pins'); const n=box?Number(box.dataset.n)||0:0; const out=[];
+    const g=(i,k)=>{ const e=document.getElementById(pfx+'_pi'+i+'_'+k); return e?String(e.value):''; };
+    for(let i=0;i<n;i++) out.push({company:g(i,'company'),policyNo:g(i,'policyNo'),coverage:g(i,'coverage'),expiry:g(i,'expiry'),hotline:g(i,'hotline')});
+    return out; }
+  /* the card that READS it — o.full shows the policy number (admin / the family); a teacher's view has none */
+  const pinsCard = (v, o) => { const x=pinsParse(v); o=o||{}; const today=todayStr();
+    if(x.has==='NO') return `<small class="muted">${EN()?'The family says the child has no private insurance.':'ผู้ปกครองแจ้งว่าไม่มีประกันส่วนตัว'}</small>`;
+    if(!x.list.length) return `<small class="muted">${EN()?'Not given yet':'ยังไม่ได้แจ้ง'}</small>`;
+    return x.list.map(it=>{ const exp=it.expiry&&String(it.expiry).slice(0,10)<today;
+      return `<div style="border-left:3px solid var(--blue);padding:0 0 0 var(--sp-2);margin:var(--sp-1) 0">
+        <b>${esc(it.company)}</b>${exp?` <span class="pill bad" style="font-size:var(--fs-1)">${EN()?'expired':'หมดอายุแล้ว'}</span>`:''}
+        ${o.full&&it.policyNo?`<br><small class="muted">${EN()?'Policy no.':'เลขกรมธรรม์'}: ${esc(it.policyNo)}</small>`:''}
+        <div style="font-size:var(--fs-1);white-space:pre-wrap">${esc(it.coverage||'')}</div>
+        ${it.expiry||it.hotline?`<small class="muted">${it.expiry?(EN()?'expires ':'หมดอายุ ')+esc(ddmmyyyy(String(it.expiry).slice(0,10))):''}${it.expiry&&it.hotline?' · ':''}${it.hotline?`<a href="tel:${esc(String(it.hotline).replace(/[^0-9+]/g,''))}">📞 ${esc(it.hotline)}</a>`:''}</small>`:''}</div>`; }).join(''); };
   // age as "X ปี Y เดือน" / "X y Y m" from a DOB
   function ageYM(dob){ const m=window.AGEMONTHS?AGEMONTHS(dob):0; return ageYMfromMonths(m); }
   function ageYMfromMonths(m){ m=Math.max(0,Math.round(m)); const y=Math.floor(m/12), mo=m%12;
@@ -3246,7 +3311,17 @@
       ${apTx('data.health.infect',EN()?'Infectious diseases (chickenpox, mumps, other)':'ประวัติโรคติดเชื้อ (อีสุกอีใส คางทูม อื่น ๆ)',EN()?'leave blank if none':'ไม่มีให้เว้นว่าง')}
       ${apTx('data.health.allergy',EN()?'Allergies (medicine, food, plants, pets, other)':'แพ้ยา อาหาร พืช สัตว์เลี้ยง อื่น ๆ',EN()?'leave blank if none':'ไม่มีให้เว้นว่าง')}
       ${apTx('data.health.chronic',EN()?'Other chronic conditions':'โรคประจำตัวอื่น ๆ',EN()?'leave blank if none':'ไม่มีให้เว้นว่าง')}
-      ${apIn('data.health.medication',EN()?'Regular medication':'ยาประจำตัวที่ต้องใช้')}</div>`,
+      ${apIn('data.health.medication',EN()?'Regular medication':'ยาประจำตัวที่ต้องใช้')}</div>
+      ${/* 🛡️ the family's own insurance (2026-11-25) — not health data, so it is kept whatever item 1 says */''}
+      <div class="card"><h3>🛡️ ${EN()?"Your child's own insurance":'ประกันส่วนตัวของน้อง'}</h3>
+      <p class="muted" style="font-size:var(--fs-1);margin-top:0">${EN()?'Insurance your family arranged yourselves — not the school policy. If there is an accident, the teacher can see the company, the cover and the claims phone.':'ประกันที่ครอบครัวทำให้น้องเอง (ไม่ใช่ประกันของโรงเรียน) · หากเกิดอุบัติเหตุ คุณครูจะเห็นชื่อบริษัท ความคุ้มครอง และเบอร์เคลม'}</p>
+      ${apSeg('data.insurance.has',EN()?'Does your child have private insurance?':'น้องมีประกันส่วนตัวหรือไม่',[['NO','ไม่มี','No'],['YES','มี','Yes']])}
+      ${appGet('data.insurance.has')==='YES'?Array.from({length:APP_insN()},(_,i)=>`<div style="border-top:1px solid var(--line);padding-top:var(--sp-2);margin-top:var(--sp-2)"><b>${EN()?'Policy':'กรมธรรม์'} ${i+1}</b>
+        ${apIn('data.insurance.list.'+i+'.company',EN()?'Insurance company':'บริษัทประกัน',{req:1,max:120})}
+        ${apIn('data.insurance.list.'+i+'.policyNo',EN()?'Policy / card number':'เลขกรมธรรม์ / เลขบัตร',{max:60})}
+        ${apTx('data.insurance.list.'+i+'.coverage',(EN()?'What it covers, and up to how much':'ความคุ้มครอง / วงเงิน')+' *',EN()?'e.g. OPD up to ฿2,000/visit · IPD up to ฿50,000':'เช่น OPD ครั้งละไม่เกิน 2,000 บาท · IPD ไม่เกิน 50,000 บาท')}
+        <div class="grid2">${apIn('data.insurance.list.'+i+'.expiry',EN()?'Expires (if known)':'วันหมดอายุ (ถ้าทราบ)',{type:'date'})}${apIn('data.insurance.list.'+i+'.hotline',EN()?'Claims phone':'เบอร์ติดต่อเคลม',{type:'tel',max:40})}</div></div>`).join('')
+        +(APP_insN()<3?`<button type="button" class="btn sm outline block" onclick="APP_insAdd()">+ ${EN()?'Add another policy':'เพิ่มกรมธรรม์'}</button>`:''):''}</div>`,
     // 5 ── documents (phase 1: say how they will arrive; uploading comes in phase 2)
     ()=>`<div class="card"><p class="muted" style="font-size:var(--fs-1);margin-top:0">${EN()?'Not required now. Tell the school how each document will reach them — you can bring them on the visit day and the school will photograph them.':'ไม่บังคับตอนนี้ · บอกโรงเรียนว่าจะส่งเอกสารแต่ละรายการอย่างไร — นำมาในวันเยี่ยมชมได้ โรงเรียนจะถ่ายเก็บให้'}</p>
       ${APP_DOCS.map(([k,th,en])=>apSeg('data.docs.'+k,EN()?en:th,[['app','แนบในแอป','Attach in the app'],['visit','นำมาวันเยี่ยมชม','Bring on visit day'],['later','ส่งภายหลัง','Send later']])).join('')}
@@ -3278,6 +3353,7 @@
         +sec(1,st[1],line(EN()?'Father':'บิดา',(d.father||{}).name)+line(EN()?'Mother':'มารดา',(d.mother||{}).name))
         +sec(2,st[2],(d.pickups||[]).filter(x=>x&&x.name).map(x=>line(x.relation||'-',x.name+(x.phone?' · '+x.phone:''))).join('')||`<span class="muted">-</span>`)
         +sec(3,st[3],line(EN()?'Blood group':'หมู่โลหิต',h.blood)+line(EN()?'Allergies':'แพ้',h.allergy)+line(EN()?'Chronic':'โรคประจำตัว',h.chronic)
+          +line(EN()?'Private insurance':'ประกันส่วนตัว',(d.insurance||{}).has==='NO'?(EN()?'none':'ไม่มี'):(d.insurance||{}).has==='YES'?(APP_insList().filter(x=>x&&x.company).map(x=>x.company).join(', ')||'-'):'')
           +(cs.health===false?`<div style="color:var(--warn)">⚠️ ${EN()?'You declined item 1 — the health answers will NOT be kept.':'ท่านไม่ยินยอมข้อ 1 — ข้อมูลสุขภาพที่กรอกจะไม่ถูกบันทึก'}</div>`:''))
         +sec(6,st[6],[['health',1],['daily',2],['photoJournal',3],['photoPublic',4]].map(([k,n])=>`<div>${n}. ${yes(cs[k])}</div>`).join(''))
         +`<div class="card"><h3>✍️ ${EN()?'Sign':'ลงชื่อ'}</h3>
@@ -3288,7 +3364,14 @@
           <p class="muted" style="font-size:var(--fs-1)">🔒 ${EN()?'On submit the system records the time, your LINE account, the name you typed and the version of the consent text.':'เมื่อกดส่ง ระบบบันทึกเวลา บัญชี LINE ชื่อที่พิมพ์ และฉบับของข้อความความยินยอม เพื่อยืนยันการลงชื่อของท่าน'}</p>
           <p style="font-size:var(--fs-1)">${esc(APP_INFO?(EN()?APP_INFO.text.en.final:APP_INFO.text.th.final):'')}</p></div>`; }
   ];
-  window.APP_truth=v=>{ APP_S.truth=!!v; appSave(); };   // inline handlers run in global scope — APP_S is not
+  window.APP_truth=v=>{ APP_S.truth=!!v; appSave(); };
+  // how many policy blocks to draw: what was typed, or what the family asked for with "+", 1–3
+  // the draft stores list.0 / list.1 … as an OBJECT (appSet makes {} for a missing level) — read it as an array
+  window.APP_insList=()=>{ const L=appGet('data.insurance.list'); if(Array.isArray(L)) return L; const out=[];
+    Object.keys(L||{}).forEach(k=>{ if(/^[0-9]+$/.test(k)) out[+k]=L[k]; }); return out; };
+  window.APP_insN=()=>{ const L=APP_insList(); let n=0; L.forEach((x,k)=>{ if(x&&Object.values(x).some(v=>String(v||'').trim())) n=k+1; });
+    return Math.min(3, Math.max(1, n, Number(APP_S.insN)||0)); };
+  window.APP_insAdd=()=>{ APP_S.insN=Math.min(3, APP_insN()+1); APP_go(APP_S.step,true); };   // inline handlers run in global scope — APP_S is not
   // a field changed: keep it, nothing else (a re-render would lose the cursor)
   window.APP_in=(el)=>{ appSet(el.dataset.ap, el.value); if(el.style.borderColor){ el.style.borderColor=''; el.style.background=''; }
     if(el.dataset.ap==='child.DOB') APP_go(APP_S.step,true); };
@@ -3319,6 +3402,11 @@
         if(ok){ let s=0; for(let k=0;k<12;k++) s+=(+d[k])*(13-k); ok=((11-(s%11))%10)===+d[12]; }
         if(!ok){ miss.push(EN()?'a valid 13-digit national ID':'เลขบัตรประชาชน 13 หลักที่ถูกต้อง'); const el=document.querySelector('[data-ap="child.NationalID"]'); if(el){ el.style.borderColor='var(--bad)'; el.style.background='var(--bad-bg)'; } } }
       if(c.DOB && c.DOB>todayStr()) miss.push(EN()?'a date of birth that is not in the future':'วันเกิดที่ไม่ใช่วันในอนาคต'); }
+    // 🛡️ "มี" means at least one policy with a company and what it covers — the server says the same
+    if(i===3 && appGet('data.insurance.has')==='YES'){ const L=APP_insList();
+      const filled=L.map((x,k)=>({x:x||{},k})).filter(o=>['company','policyNo','coverage','expiry','hotline'].some(f=>String(o.x[f]||'').trim()));
+      if(!filled.length){ need('data.insurance.list.0.company',EN()?'insurance company':'บริษัทประกัน'); need('data.insurance.list.0.coverage',EN()?'what the insurance covers':'ความคุ้มครองของประกัน'); }
+      filled.forEach(o=>{ need('data.insurance.list.'+o.k+'.company',(EN()?'insurance company ':'บริษัทประกัน ')+(o.k+1)); need('data.insurance.list.'+o.k+'.coverage',(EN()?'cover of policy ':'ความคุ้มครอง กรมธรรม์ ')+(o.k+1)); }); }
     if(i===5 && !APP_S.truth) miss.push(EN()?'tick the declaration':'ติ๊กคำรับรอง');
     if(i===6){ if(!APP_S.consents.pdpa) miss.push(EN()?'consent to 7.1–7.2':'ยินยอมข้อ 7.1–7.2');
       if(['health','daily','photoJournal','photoPublic'].some(k=>APP_S.consents[k]!==true&&APP_S.consents[k]!==false)) miss.push(EN()?'an answer for each of items 1–4':'ตอบ ยินยอม/ไม่ยินยอม ให้ครบ 4 ข้อ'); }
@@ -3340,6 +3428,10 @@
   async function APP_submit(){ const d=JSON.parse(JSON.stringify(APP_S.data||{}));
     d.pickups=(d.pickups||[]).filter(x=>x&&String(x.name||'').trim());
     if(d.regAddress&&d.regAddress.same!=='no') d.regAddress={same:'yes'};
+    // 🛡️ a real array, blank blocks dropped, nothing at all when the answer is "ไม่มี" or not given
+    if(d.insurance){ const has=d.insurance.has==='YES'||d.insurance.has==='NO'?d.insurance.has:'';
+      if(!has) delete d.insurance;
+      else d.insurance={has, list:has==='YES'?APP_insList().filter(x=>x&&['company','policyNo','coverage','expiry','hotline'].some(f=>String(x[f]||'').trim())):[]}; }
     const c=Object.assign({},APP_S.child); if(c.IdType!=='PASSPORT'){ c.NationalID=String(c.NationalID||'').replace(/\D/g,''); delete c.Passport; } else delete c.NationalID;
     try{ const r=await api('submitApplication',{ parentId:USER.parentId, uid:USER.uid, lang:EN()?'en':'th', clientRef:APP_S.clientRef,
         child:c, data:d, consents:APP_S.consents, truth:APP_S.truth===true, signName:String(APP_S.signName||'').trim(),
@@ -4146,6 +4238,9 @@
         <label class="field"><span>${EN()?'Medical history':'ประวัติสุขภาพ/โรคประจำตัว'}</span><textarea id="${pre}_MedicalHistory">${esc(s.MedicalHistory||'')}</textarea></label>
         <label class="field"><span>${EN()?'Emergency contact':'ติดต่อฉุกเฉิน'}</span><input id="${pre}_EmergencyContact" value="${esc(s.EmergencyContact||'')}"/></label>
         <label class="field"><span>${EN()?'Home address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(s.Address||'')}</textarea></label>
+        <div class="card" style="padding:var(--sp-2)"><b>🛡️ ${EN()?"Your child's own insurance":'ประกันส่วนตัวของน้อง'}</b>
+          <p class="muted" style="font-size:var(--fs-1);margin:var(--sp-0) 0 var(--sp-2)">${EN()?'Insurance your family arranged (not the school policy). If there is an accident, the teacher can see the company, the cover and the claims phone.':'ประกันที่ครอบครัวทำให้น้องเอง (ไม่ใช่ประกันของโรงเรียน) · หากเกิดอุบัติเหตุ คุณครูจะเห็นชื่อบริษัท ความคุ้มครอง และเบอร์เคลม'}</p>
+          ${pinsEditor(pre, s.PrivateInsurance)}${pinsInit(pre, s.PrivateInsurance)}</div>
         <button class="btn block green" onclick="P_saveStudent('${s.StudentID}',this)">${ic('save')} ${EN()?'Save child info':'บันทึกข้อมูลเด็ก'}</button></div>`; };
     app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
       <h3 class="page" style="font-size:var(--fs-2)">${EN()?'Parents':'ผู้ปกครอง'} (${parents.length})</h3>
@@ -4174,6 +4269,8 @@
     try{ await api('saveFamilyParent',{parentId:USER.parentId,uid:USER.uid,targetParentId:parentId,data:{Photo:''}}); confirmSaved(t('c.saved')); P_profile(); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_saveStudent = async (studentId,btn)=>{ const g=id=>{ const e=document.getElementById('st_'+studentId+'_'+id); return e?e.value.trim():undefined; };
     const data={ Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), BloodType:g('BloodType'), Allergy:g('Allergy'), MedicalHistory:g('MedicalHistory'), EmergencyContact:g('EmergencyContact'), Address:g('Address') };
+    // 🛡️ the family's own insurance — sent only when changed on this screen
+    { const pf='st_'+studentId; if(pinsChanged(pf)){ const pv=pinsRead(pf); const bad=pinsProblem(pv); if(bad){ toast(bad); return; } data.PrivateInsurance=pv; } }
     if(btn)btn.disabled=true;
     try{ await api('saveStudentSelf',{studentId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_absence = async () => { const kids=await api('parentChildren',parentScope());
@@ -6510,6 +6607,9 @@
         row(EN()?'Accident insurance':'ประกันอุบัติเหตุ',yn(d.insuranceHas))+
         (d.scope==='full'&&d.insuranceHas?row(EN()?'Policy':'กรมธรรม์',[d.insuranceCompany,d.insurancePolicyNo].filter(Boolean).join(' · ')):'')+
         (d.scope==='full'&&d.insuranceExpiry?row(EN()?'Expires':'หมดอายุ',ddmmyyyy(d.insuranceExpiry)):'')+
+        /* 🛡️ the family's own cover, under the school's — a teacher at a hospital door needs both */
+        `<div class="list-item" style="align-items:flex-start;display:block"><span class="muted" style="font-size:var(--fs-1)">🛡️ ${EN()?'Private insurance (family)':'ประกันส่วนตัว (ครอบครัวทำเอง)'}</span>
+          <div>${pinsCard(d.privateIns, {full:d.scope==='full'})}</div></div>`+
         row(EN()?'Vaccine notes':'บันทึกวัคซีน',d.vaccine))}
       ${d.scope==='full'?sec('🏠',EN()?'Home & family':'ที่อยู่ & ครอบครัว',
         row(EN()?'Address':'ที่อยู่',d.address)+
@@ -7180,6 +7280,17 @@
    * her rooms could not be reported at all. myStudents returns them all; they are grouped by class
    * with <optgroup>, so the list is complete without becoming a list of strangers.
    */
+  /* 🛡️ WHAT COVER THIS CHILD HAS, while the teacher is writing up the accident (2026-11-25) — the school's
+   * policy (yes/no, as the profile says it) and the family's own insurance (company · cover · claims
+   * phone). Read through studentProfile, so a teacher sees exactly what the profile already shows them. */
+  window.INJ_ins=async(pfx, sid)=>{ const box=document.getElementById(pfx+'injIns'); if(!box) return;
+    if(!sid){ box.innerHTML=''; return; } box.innerHTML='';
+    let d=null; try{ d=await api('studentProfile',{studentId:sid}); }catch(e){ return; }
+    const sel=document.getElementById(pfx+'injChild'); if(!d || !sel || sel.value!==sid) return;   // a newer pick won
+    box.innerHTML=`<div class="card" style="padding:var(--sp-2);background:var(--surface-2);margin-top:var(--sp-1)">
+      <b style="font-size:var(--fs-1)">🛡️ ${EN()?'Insurance':'ประกันของน้อง'}</b>
+      <div style="font-size:var(--fs-1)">${EN()?'School accident policy':'ประกันอุบัติเหตุของโรงเรียน'}: <b>${d.insuranceHas?(EN()?'Yes':'มี'):(d.insuranceExpired?(EN()?'expired':'หมดอายุแล้ว'):(EN()?'No':'ไม่มี'))}</b></div>
+      <div style="font-size:var(--fs-1);margin-top:var(--sp-1)">${EN()?'Private insurance (family)':'ประกันส่วนตัว (ครอบครัวทำเอง)'}:</div>${pinsCard(d.privateIns,{full:d.scope==='full'})}</div>`; };
   function injChildOptions(students){
     const list=students||[];
     const byClass={}; const order=[];
@@ -7208,6 +7319,7 @@
     pfx=pfx||'';
     const sel=document.getElementById(pfx+'injChild'); if(!sel) return;
     const o=sel.options[sel.selectedIndex]; if(!o) return;
+    INJ_ins(pfx, sel.value);
     const dob=o.getAttribute('data-dob')||'', sx=o.getAttribute('data-sex')||'', cls=o.getAttribute('data-class')||'';
     if(dob){ const m=Math.max(0,Math.round(window.AGEMONTHS?AGEMONTHS(dob):0));
       const y=document.getElementById(pfx+'injAgeY'), mo=document.getElementById(pfx+'injAgeM');
@@ -7242,7 +7354,8 @@
       </div>
       <div class="card"><h3>👶 ${esc(t('inj.child'))}</h3>
         ${edit ? `<div class="list-item"><span class="muted">${esc(t('inj.child'))}</span><b>${esc(r.nick||r.ChildName||r.StudentID)}</b></div>`
-               : `<label class="field"><span>${esc(t('inj.selectChild'))}</span><select id="${id('injChild')}" onchange="INJ_child('${pfx}')">${injChildOptions(o.students)}</select></label>`}
+               : `<label class="field"><span>${esc(t('inj.selectChild'))}</span><select id="${id('injChild')}" onchange="INJ_child('${pfx}')">${injChildOptions(o.students)}</select></label>
+                  <div id="${id('injIns')}"></div>`}
         <div class="jsec"><h4>${esc(t('inj.sex'))}</h4>${radio('injSex','M',t('inj.male'),sex==='M')} ${radio('injSex','F',t('inj.female'),sex==='F')}</div>
         <div class="grid2"><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.years'))})</span><input type="number" id="${id('injAgeY')}" value="${V(r.AgeYears)}" placeholder="–"/></label><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.months'))})</span><input type="number" id="${id('injAgeM')}" value="${V(r.AgeMonths)}" placeholder="–"/></label></div>
         <div class="jsec"><h4>${esc(t('inj.edu'))}</h4>${radio('injEdu','none',t('inj.edu.none'),edu==='none')} ${radio('injEdu','grade',t('inj.edu.grade'),edu!=='none')}
@@ -12748,7 +12861,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const row=p=>`<div class="card" style="padding:var(--sp-2)"><div class="spread"><b>${esc(EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||p.id}</b><b style="color:var(--blue)">${baht(p.price)}</b></div>
       <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.${p.qrId?` · 🏦 ${esc(qrName(p.qrId))||'QR'}`:''}</small>
       <div class="row" style="margin-top:var(--sp-2)"><button class="btn sm outline" onclick="A_pkgForm('${esc(p.id)}')">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_pkgDelete('${esc(p.id)}')">${ic('trash')} ${EN()?'Delete':'ลบ'}</button></div></div>`;
-    modal(`<div class="spread"><h3>📦 ${EN()?'Packages / advance-payment discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
+    modal(`<div class="spread"><h3>📦 ${EN()?'Packages / advance-payment discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_chargePresets()">🧾 ${EN()?'Usual extra items':'รายการค่าใช้จ่ายประจำ'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Name, price and study time per package. The time auto-fills a student’s arrive/leave time when you assign the package (still editable).':'ตั้งชื่อ ราคา และช่วงเวลาเรียนของแต่ละแพ็กเกจ · เวลาจะถูกนำไปใส่ให้นักเรียนอัตโนมัติเมื่อเลือกแพ็กเกจ (แก้ไขรายคนได้)'}</p>
       <div style="max-height:60vh;overflow:auto">${(plans||[]).length?plans.map(row).join(''):`<div class="card muted">${EN()?'No packages yet':'ยังไม่มีแพ็กเกจ'}</div>`}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -13075,6 +13188,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <textarea id="stf_InsuranceBenefits" rows="3" placeholder="${EN()?'one per line':'บรรทัดละรายการ'}">${esc(s.InsuranceBenefits||'')}</textarea></label>
         ${f('InsuranceHotline',EN()?'Claims hotline':'เบอร์ติดต่อเคลม',s.InsuranceHotline)}
         ${photoField('stf_InsCard',t('ins.card'),s.InsuranceCardImage,false)}</div>
+      ${/* 🛡️ THE FAMILY'S OWN INSURANCE — a separate box on purpose: the one above is the policy the
+           SCHOOL bought, this is cover the family arranged themselves. The family can keep it up to
+           date from ข้อมูลของฉัน; the admin can fill it in for them (a paper form, a phone call). */''}
+      ${id?`<div class="card" style="padding:var(--sp-2)"><b>🛡️ ${EN()?"Child's private insurance (arranged by the family)":'ประกันส่วนตัวของนักเรียน (ที่ครอบครัวทำเอง)'}</b>
+        <p class="muted" style="font-size:var(--fs-1);margin:var(--sp-0) 0 var(--sp-2)">${EN()?'Separate from the school policy above. Teachers see the company, the cover and the claims phone when there is an accident.':'แยกจากประกันของโรงเรียนด้านบน · คุณครูจะเห็นชื่อบริษัท ความคุ้มครอง และเบอร์เคลม เมื่อเกิดอุบัติเหตุ'}</p>
+        ${pinsEditor('stf', s.PrivateInsurance)}${pinsInit('stf', s.PrivateInsurance)}</div>`:''}
       ${s.DriveFolderUrl?`<div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:var(--fs-1)">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
       ${id?A_pauseBox(s):''}
       ${id?`<button class="btn outline block" onclick="A_studentLinks('${id}')">${ic('link')} ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
@@ -13552,6 +13671,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     { const _od=[...m.querySelectorAll('.stf_off')]; if(_od.length) data.OffDays=_od.filter(x=>x.checked).map(x=>x.value).join(','); }
     const stp=photoVal(m,'stf_Photo'); if(stp) data.Photo=stp;
     const stc=photoVal(m,'stf_InsCard'); if(stc) data.InsuranceCardImage=stc;
+    // 🛡️ only when it was changed here — a save must never blank what the family entered themselves
+    if(pinsChanged('stf')){ const pv=pinsRead('stf'); const bad=pinsProblem(pv); if(bad){ toast(bad); return; } data.PrivateInsurance=pv; }
     // adminId so the audit line for GeoExempt names a person rather than the word "admin"
     try{ await api('saveStudent',{studentId:id,data,adminId:USER.staffId}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
 
@@ -16063,6 +16184,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${d.regAddress&&d.regAddress.same!=='yes'&&apAddrTxt(d.regAddress)?sec('📄 '+(EN()?'House registration':'ทะเบียนบ้าน'),esc(apAddrTxt(d.regAddress))):''}
       ${sec('🚗 '+(EN()?'May collect the child':'ผู้รับแทน'),(d.pickups||[]).map(p=>`<div>${esc(p.name)} ${p.relation?('('+esc(p.relation)+')'):''} ${esc(p.phone||'')}</div>`).join(''))}
       ${sec('🩺 '+(EN()?'Health and habits':'สุขภาพและอุปนิสัย'),apKV(d.health))}
+      ${d.insurance?sec('🛡️ '+(EN()?'Private insurance (family)':'ประกันส่วนตัว (ครอบครัวทำเอง)'),pinsCard(d.insurance,{full:true})):''}
       ${sec('📎 '+(EN()?'Documents':'เอกสาร')+' — '+(a.docsStatus==='COMPLETE'?(EN()?'✅ complete':'✅ ครบแล้ว'):(EN()?'⏳ pending':'⏳ ยังค้าง')),
         APP_DOCS_TXT(d.docs)+`<div style="margin-top:var(--sp-1)"><b>${EN()?'Attached':'แนบในระบบ'}: ${(a.docs||[]).length}</b> ${(a.docs||[]).map(x=>`<a href="#" onclick="APP_docView('${esc(x.docId)}');return false">${x.mime==='application/pdf'?'📄':'🖼️'} ${esc(appDocLbl(x.type))}</a>`).join(' · ')}</div>
         <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)"><button class="btn sm" onclick="this.closest('.modal').remove();APP_docs('${esc(a.appId)}',${a.status==='REJECTED'||a.status==='WITHDRAWN'?0:1})">${ic('attach')} ${EN()?'Open / photograph':'เปิด / ถ่ายแนบแทน'}</button>
@@ -16146,7 +16268,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ const r=await api('approveApplication',{appId:id,className:m.querySelector('#apAC').value,startDate:start,plan:m.querySelector('#apAP').value,parentMessage:m.querySelector('#apAMsg').value.trim(),adminId:USER.staffId});
       document.querySelectorAll('.modal').forEach(x=>x.remove()); confirmSaved(EN()?'Accepted — student created':'รับเข้าแล้ว — สร้างข้อมูลนักเรียนแล้ว');
       modal(`<h3>🎉 ${EN()?'Accepted':'รับเข้าแล้ว'}</h3><p>${esc(r.nick||r.childName)} · ${esc(r.studentId)} · ${esc(r.className)} · ${EN()?'starts':'เริ่มเรียน'} ${esc(APP_fmtDate(r.startDate))}</p>
-        <p class="muted" style="font-size:var(--fs-1)">${EN()?'Next: issue the entry fee / deposit bill on the usual bill screen.':'ขั้นต่อไป: ออกบิลค่าแรกเข้า / มัดจำ ที่หน้าออกบิลเดิม'}</p>
+        <p class="muted" style="font-size:var(--fs-1)">${EN()?'Next: issue the first bill — tuition plus the entrance fee, deposit or a discount, on one screen.':'ขั้นต่อไป: ออกบิลแรกเข้า — ค่าเทอม พร้อมค่าแรกเข้า มัดจำ หรือส่วนลด ในหน้าเดียว'}</p>
         <button class="btn block" onclick="this.closest('.modal').remove();A_appBill('${esc(r.studentId)}')">🧾 ${EN()?'Issue a bill':'ออกบิล'}</button>
         <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to applications':'กลับไปรายการใบสมัคร'}</button>`);
     }catch(e){ btn.disabled=false; err(e); } };
@@ -16194,7 +16316,148 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ const r=await window.AtomAppForm.save(x.d, x.r); if(r&&r.cancelled) return;
       setHTML('#apPrintNote', `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:var(--sp-2);margin:var(--sp-2) 0 0;font-size:var(--fs-1);color:var(--ok)">✅ <b>${r&&r.shared?(EN()?'Saved':'บันทึกแล้ว'):(EN()?'Downloaded':'ดาวน์โหลดแล้ว')}</b> <span translate="no">${esc(r.name)}</span></div>`);
     }catch(e){ err(e); } finally{ btn.disabled=false; } };
-  window.A_appBill=async(sid)=>{ try{ A_CACHE.students=await api('listStudents',{},{fresh:true}); }catch(e){} A_issueBill(sid); };
+  window.A_appBill=async(sid)=>{ try{ A_CACHE.students=await api('listStudents',{},{fresh:true}); }catch(e){} A_firstBill(sid); };
+  /* 🧾 THE FIRST BILL OF A NEW CHILD, ON ONE SCREEN (2026-11-25) — "เมื่อ Admin อนุมัติและกำลังจะเพิ่มบิล
+   * เรียกเก็บ ต้องสามารถเพิ่มค่าใช้จ่ายอื่นๆ เช่นค่าแรกเข้า ส่วนลด อื่นๆ ที่เหมือนฟังก์ชันออกบิลปกติได้ด้วย".
+   *
+   * NO NEW MONEY PATH. It is the finance screen's own two writers, in the order a person would press them:
+   *   · the tuition line → issueBill (the figure shown is billQuote, i.e. issueBill's own arithmetic —
+   *     sent WITHOUT an amount unless the admin changed it, so what was shown is what is billed)
+   *   · each extra line  → addStudentCharge on the same month (+ เรียกเก็บ / − ส่วนลด), exactly as
+   *     A_finAddCharge does; the discount comes off the month's total and never below zero (monthDiscount_)
+   * A month that already has a tuition bill is shown, not re-issued — issueBill would overwrite it.
+   * If any step fails the screen says which ones went through and opens the finance page for that
+   * month, where everything can be checked and corrected one line at a time. */
+  window.A_firstBill=async(sid, month)=>{ const s=findStudent(sid)||{};
+    const presets=await api('chargePresets',{},{fresh:true}).catch(()=>[]);
+    const start=String(s.EnrollDate||'').slice(0,7);
+    window._FB={ sid, presets:Array.isArray(presets)?presets:[], lines:[], q:null, month:month||(start&&start>=monthStr()?start:monthStr()) };
+    document.querySelectorAll('.modal.fbill').forEach(x=>x.remove());
+    modal(`<div id="fbBody"><p class="muted">⏳</p></div>`);
+    const m=[...document.querySelectorAll('.modal')].pop(); if(m) m.classList.add('fbill');
+    await FB_load(); };
+  window.FB_load=async()=>{ const F=window._FB; if(!F) return; FB_keep();
+    try{ F.q=await api('billQuote',{studentId:F.sid,month:F.month},{fresh:true}); }catch(e){ F.q=null; err(e); }
+    FB_draw(); };
+  // what is typed in the lines, kept across a redraw
+  window.FB_keep=()=>{ const F=window._FB; const box=document.getElementById('fbLines'); if(!F||!box) return;
+    F.lines=[...box.querySelectorAll('.fb-line')].map(r=>({ label:r.querySelector('.fb-l').value, sign:Number(r.querySelector('.fb-s').value)<0?-1:1, amount:r.querySelector('.fb-a').value }));
+    const tu=document.getElementById('fbTuiOn'); if(tu) F.tuiOn=tu.checked;
+    const ta=document.getElementById('fbTuiAmt'); if(ta) F.tuiAmt=ta.value;
+    const nt=document.getElementById('fbNotify'); if(nt) F.notify=nt.checked; };
+  const FB_money=v=>{ const n=Math.round(Math.abs(Number(String(v==null?'':v).replace(/,/g,''))||0)*100)/100; return n; };
+  window.FB_draw=()=>{ const F=window._FB, q=F.q||{}, s=findStudent(F.sid)||{}; const body=document.getElementById('fbBody'); if(!body) return;
+    const tu=q.tuition, ex=q.existing, can=!!tu && !ex;
+    if(F.tuiOn===undefined) F.tuiOn=can;
+    if(F.tuiAmt===undefined || F.tuiQuoteMonth!==F.month){ F.tuiAmt=tu?tu.amount:''; F.tuiQuoteMonth=F.month; }
+    const on=can && F.tuiOn!==false;
+    const line=(x,i)=>`<div class="fb-line" style="display:grid;grid-template-columns:118px 1fr 36px;gap:var(--sp-1);margin-top:var(--sp-2);align-items:center">
+      <input class="fb-l" style="grid-column:1/-1" value="${esc(x.label||'')}" maxlength="80" placeholder="${EN()?'e.g. Entrance fee':'เช่น ค่าแรกเข้า'}" oninput="FB_total()"/>
+      <select class="fb-s" onchange="FB_total()"><option value="1" ${x.sign<0?'':'selected'}>+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1" ${x.sign<0?'selected':''}>− ${EN()?'discount':'ส่วนลด'}</option></select>
+      <input class="fb-a" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(x.amount==null?'':x.amount)}" placeholder="0" oninput="FB_total()"/>
+      <button type="button" class="btn sm pink" onclick="FB_del(${i})" aria-label="${EN()?'Remove':'ลบ'}">${ic('trash')}</button></div>`;
+    const chips=(F.presets||[]).map((p,i)=>`<button type="button" class="btn sm outline" style="margin:var(--sp-0)" onclick="FB_preset(${i})">${p.discount?'− ':'+ '}${esc(p.label)} ${baht(p.amount)}</button>`).join('');
+    body.innerHTML=`<h3>🧾 ${EN()?'First bill':'บิลแรกเข้า'} — ${esc(dispNick(s)||F.sid)}</h3>
+      <p class="muted" style="font-size:var(--fs-1);margin-top:0">${esc(s.Class||'')}${q.enrolDate?' · '+(EN()?'starts ':'เริ่มเรียน ')+esc(ddmmyyyy(q.enrolDate)):''}</p>
+      <label class="field"><span>${EN()?'Bill month':'เดือนที่เรียกเก็บ'}</span><input type="month" id="fbMonth" value="${esc(F.month)}" onchange="FB_month(this.value)"/>
+        <small class="muted" style="font-size:var(--fs-1)">${EN()?'Every line below goes on this month — the discount comes off this month’s total.':'ทุกรายการด้านล่างจะอยู่ในเดือนนี้ · ส่วนลดหักจากยอดรวมของเดือนนี้'}</small></label>
+      <div class="card" style="padding:var(--sp-2)">
+        ${ex ? `<b>${EN()?'Tuition':'ค่าเทอม'}</b><div style="font-size:var(--fs-1);color:var(--warn)">${EN()?'This month already has a tuition bill':'เดือนนี้มีบิลค่าเทอมแล้ว'} ${baht(ex.amount)} (${esc(tStat(ex.status)||ex.status)}) — ${EN()?'it is not issued again here.':'จะไม่ออกซ้ำ'}</div>`
+          : !tu ? `<b>${EN()?'Tuition':'ค่าเทอม'}</b><div style="font-size:var(--fs-1);color:var(--warn)">${esc((q.refuse&&q.refuse.message)||(EN()?'Cannot work out the tuition for this month':'คำนวณค่าเทอมของเดือนนี้ไม่ได้'))}</div>`
+          : `<label style="display:flex;gap:var(--sp-2);align-items:center;margin:0"><input type="checkbox" id="fbTuiOn" style="width:auto" ${on?'checked':''} onchange="FB_total()"/><b>${esc(tu.label)}</b></label>
+             <div class="grid2" style="align-items:end"><label class="field" style="margin:0"><span>${EN()?'Amount':'จำนวนเงิน'}</span><input type="number" min="0" step="0.01" id="fbTuiAmt" value="${esc(F.tuiAmt)}" oninput="FB_total()"/></label>
+               <small class="muted" style="font-size:var(--fs-1)">${EN()?'Worked out by the system':'ระบบคำนวณให้'}: ${baht(tu.amount)}${tu.prorated?(EN()?' (part month)':' (คิดตามวันที่เริ่มเรียน)'):''}${tu.discount>0?' · '+(EN()?'standing discount':'หักส่วนลดประจำ')+' '+baht(tu.discount):''}</small></div>`}
+        ${(q.charges||[]).length?`<div style="margin-top:var(--sp-2);font-size:var(--fs-1)"><b>${EN()?'Already on this month':'มีอยู่แล้วในเดือนนี้'}</b>${q.charges.map(c=>`<div class="spread"><span>${c.amount<0?'🏷️ ':''}${esc(c.label)}</span><span>${c.amount<0?'−'+baht(-c.amount):baht(c.amount)}</span></div>`).join('')}</div>`:''}</div>
+      <div class="card" style="padding:var(--sp-2)"><b>${EN()?'Extra items':'รายการเพิ่มเติม'}</b>
+        <div id="fbLines">${F.lines.map(line).join('')}</div>
+        ${chips?`<div style="margin-top:var(--sp-2)"><small class="muted" style="font-size:var(--fs-1)">${EN()?'Usual items':'รายการประจำ'}:</small><div>${chips}</div></div>`
+          :`<small class="muted" style="display:block;margin-top:var(--sp-1);font-size:var(--fs-1)">${EN()?'Tip: set the usual items and amounts in Packages → Usual extra items.':'ตั้งรายการประจำและยอดเงินไว้ได้ที่ แพ็กเกจ → รายการค่าใช้จ่ายประจำ'}</small>`}
+        <button type="button" class="btn sm outline block" style="margin-top:var(--sp-2)" onclick="FB_add()">+ ${EN()?'Add a line':'เพิ่มบรรทัด'}</button></div>
+      <div class="card" style="padding:var(--sp-2)" id="fbTotal"></div>
+      <label style="display:flex;gap:var(--sp-2);align-items:center;font-size:var(--fs-1)"><input type="checkbox" id="fbNotify" style="width:auto" ${F.notify===false?'':'checked'}/> 🔔 ${EN()?'Tell the family the bill is ready':'แจ้งผู้ปกครองว่าออกบิลแล้ว'}</label>
+      <button class="btn block" style="margin-top:var(--sp-2)" id="fbGo" onclick="FB_send(this)">🧾 ${EN()?'Issue the bill':'ออกบิล'}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
+    FB_total(); };
+  // the lines as they will be sent: named, with an amount above zero
+  const FB_lines=()=>{ FB_keep(); return (window._FB.lines||[]).map(x=>({label:String(x.label||'').trim(), amount:FB_money(x.amount)*(x.sign<0?-1:1)})).filter(x=>x.label&&x.amount!==0); };
+  const FB_tuition=()=>{ const F=window._FB, tu=F.q&&F.q.tuition; const cb=document.getElementById('fbTuiOn');
+    if(!tu || (F.q&&F.q.existing) || !cb || !cb.checked) return null;
+    return { amount:FB_money((document.getElementById('fbTuiAmt')||{}).value), quoted:tu.amount, label:tu.label }; };
+  window.FB_total=()=>{ const box=document.getElementById('fbTotal'); if(!box) return; const L=FB_lines(), T=FB_tuition(), q=window._FB.q||{};
+    const plus=(T?T.amount:0)+L.filter(x=>x.amount>0).reduce((a,x)=>a+x.amount,0);
+    const minus=L.filter(x=>x.amount<0).reduce((a,x)=>a-x.amount,0);
+    // what is already on the month counts too: a discount there comes off these, and these off it
+    const exPlus=(q.existing?Number(q.existing.amount||0):0)+(q.charges||[]).filter(c=>c.amount>0).reduce((a,c)=>a+c.amount,0);
+    const exMinus=(q.charges||[]).filter(c=>c.amount<0).reduce((a,c)=>a-c.amount,0);
+    const net=Math.max(0, plus+exPlus-minus-exMinus);
+    const half=L.some(x=>!x.label) ;
+    box.innerHTML=`<div class="spread"><span>${EN()?'New on this bill':'รายการใหม่ในรอบนี้'}</span><b>${baht(plus)}${minus?' − '+baht(minus):''}</b></div>
+      ${exPlus||exMinus?`<div class="spread" style="font-size:var(--fs-1)"><span class="muted">${EN()?'Already on this month':'มีอยู่แล้วในเดือนนี้'}</span><span>${baht(exPlus)}${exMinus?' − '+baht(exMinus):''}</span></div>`:''}
+      <div class="spread" style="border-top:1px solid var(--line);margin-top:var(--sp-1);padding-top:var(--sp-1)"><b>${EN()?'Month total for the family':'ยอดรวมของเดือนนี้ที่ผู้ปกครองต้องชำระ'}</b><b style="font-size:var(--fs-3)">${baht(net)}</b></div>
+      ${(minus+exMinus)>(plus+exPlus)?`<small style="color:var(--warn)">${EN()?'The discount is larger than the month — it stops at zero and does not carry over.':'ส่วนลดมากกว่ายอดของเดือน — หักได้ถึงศูนย์ ไม่ยกไปเดือนถัดไป'}</small>`:''}`;
+    const go=document.getElementById('fbGo'); if(go) go.disabled=!(T||L.length); };
+  window.FB_month=(v)=>{ const F=window._FB; if(!F||!/^\d{4}-\d{2}$/.test(v)) return; FB_keep(); F.month=v; F.tuiOn=undefined; FB_load(); };
+  window.FB_add=()=>{ FB_keep(); window._FB.lines.push({label:'',sign:1,amount:''}); FB_draw(); };
+  window.FB_del=(i)=>{ FB_keep(); window._FB.lines.splice(i,1); FB_draw(); };
+  window.FB_preset=(i)=>{ FB_keep(); const p=(window._FB.presets||[])[i]; if(!p) return;
+    window._FB.lines.push({label:p.label, sign:p.discount?-1:1, amount:p.amount}); FB_draw(); };
+  window.FB_send=async(btn)=>{ const F=window._FB; const L=FB_lines(), T=FB_tuition();
+    if(!T && !L.length){ toast(EN()?'Nothing to bill':'ยังไม่มีรายการที่จะออกบิล'); return; }
+    if(T && !(T.amount>0)){ toast(EN()?'Enter the tuition amount, or untick it':'กรอกยอดค่าเทอม หรือเอาเครื่องหมายออก'); return; }
+    const bad=(window._FB.lines||[]).find(x=>String(x.label||'').trim() && !(FB_money(x.amount)>0)) || (window._FB.lines||[]).find(x=>!String(x.label||'').trim() && FB_money(x.amount)>0);
+    if(bad){ toast(EN()?'Every line needs a name and an amount':'ทุกบรรทัดต้องมีชื่อรายการและจำนวนเงิน'); return; }
+    const summary=[T?('• '+T.label+' '+baht(T.amount)):'', ...L.map(x=>'• '+x.label+' '+(x.amount<0?'−'+baht(-x.amount):baht(x.amount)))].filter(Boolean).join('\n');
+    if(!confirm((EN()?'Issue for ':'ออกบิลเดือน ')+F.month+'\n'+summary)) return;
+    btn.disabled=true; const done=[], failed=[];
+    if(T){ try{ const pl={studentId:F.sid, month:F.month};
+        // the figure on screen is issueBill's own — send it as a custom amount only if the admin changed it
+        if(Math.abs(T.amount-T.quoted)>=0.005){ pl.amount=T.amount; pl.label=T.label; }
+        await api('issueBill',pl); done.push(T.label); }
+      catch(e){ failed.push(T.label+' — '+((e&&e.message)||e)); } }
+    if(!T || done.length){ for(const x of L){ try{ await api('addStudentCharge',{studentId:F.sid, month:F.month, label:x.label, amount:x.amount}); done.push(x.label); }
+      catch(e){ failed.push(x.label+' — '+((e&&e.message)||e)); } } }
+    else L.forEach(x=>failed.push(x.label+' — '+(EN()?'not sent (tuition failed first)':'ยังไม่ได้ส่ง (ค่าเทอมไม่สำเร็จ)')));
+    let told=false; const nt=document.getElementById('fbNotify');
+    if(done.length && nt && nt.checked){ try{ await api('notifyBills',{studentIds:[F.sid], month:F.month}); told=true; }catch(e){} }
+    document.querySelectorAll('.modal.fbill').forEach(x=>x.remove());
+    if(!failed.length){ confirmSaved(EN()?'Bill issued':'ออกบิลแล้ว'); FIN_MONTH=F.month; A_finStudent(F.sid); return; }
+    modal(`<h3>⚠️ ${EN()?'Part of the bill was not issued':'ออกบิลได้ไม่ครบ'}</h3>
+      ${done.length?`<p style="font-size:var(--fs-1)">✅ ${done.map(esc).join(' · ')}</p>`:''}
+      <p style="font-size:var(--fs-1);color:var(--bad)">❌ ${failed.map(esc).join('<br>❌ ')}</p>
+      <p class="muted" style="font-size:var(--fs-1)">${told?(EN()?'The family was told about the part that went through.':'แจ้งผู้ปกครองเฉพาะส่วนที่ออกได้แล้ว'):''} ${EN()?'Check and finish it on the finance page for this month.':'ตรวจและทำต่อที่หน้าการเงินของเดือนนี้'}</p>
+      <button class="btn block" onclick="this.closest('.modal').remove();FB_openFin('${esc(F.sid)}','${esc(F.month)}')">💰 ${EN()?'Open the finance page':'เปิดหน้าการเงิน'}</button>`); };
+  // inline handlers run in global scope — FIN_MONTH is this closure's, so set it from in here
+  window.FB_openFin=(sid,month)=>{ FIN_MONTH=month; A_finStudent(sid); };
+  /* 🧾 THE SCHOOL'S USUAL EXTRA ITEMS — the shortcuts on the first-bill screen. Names and amounts are the
+   * ผอ.'s to set; nothing here is billed by itself. Saved as JSON in SCHOOL_CONFIG.ChargePresets. */
+  window.A_chargePresets=async()=>{ const list=await api('chargePresets',{},{fresh:true}).catch(()=>[]);
+    window._CP=(Array.isArray(list)?list:[]).map(x=>({label:x.label, amount:x.amount, discount:!!x.discount}));
+    document.querySelectorAll('.modal.cpset').forEach(x=>x.remove());
+    modal(`<h3>🧾 ${EN()?'Usual extra items':'รายการค่าใช้จ่ายประจำ'}</h3>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Shortcuts on the first-bill screen. Tapping one adds a line the admin can still change.':'ใช้เป็นตัวเลือกด่วนในหน้าบิลแรกเข้า · กดแล้วจะเพิ่มบรรทัดที่ยังแก้ยอดได้'}</p>
+      <div id="cpList"></div>
+      <button type="button" class="btn sm outline block" onclick="CP_add()">+ ${EN()?'Add an item':'เพิ่มรายการ'}</button>
+      <button class="btn block" style="margin-top:var(--sp-2)" onclick="CP_save(this)">${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    const m=[...document.querySelectorAll('.modal')].pop(); if(m) m.classList.add('cpset'); CP_draw(); };
+  function CP_read(){ const box=document.getElementById('cpList'); if(!box) return;
+    window._CP=[...box.querySelectorAll('.cp-row')].map(r=>({label:r.querySelector('.cp-l').value, discount:Number(r.querySelector('.cp-s').value)<0, amount:r.querySelector('.cp-a').value})); }
+  window.CP_draw=()=>{ const box=document.getElementById('cpList'); if(!box) return;
+    box.innerHTML=(window._CP||[]).map((x,i)=>`<div class="cp-row" style="display:grid;grid-template-columns:118px 1fr 36px;gap:var(--sp-1);margin-bottom:var(--sp-2);align-items:center">
+      <input class="cp-l" style="grid-column:1/-1" maxlength="80" value="${esc(x.label||'')}" placeholder="${EN()?'e.g. Entrance fee':'เช่น ค่าแรกเข้า'}"/>
+      <select class="cp-s"><option value="1" ${x.discount?'':'selected'}>+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1" ${x.discount?'selected':''}>− ${EN()?'discount':'ส่วนลด'}</option></select>
+      <input class="cp-a" type="number" min="0" step="0.01" value="${esc(x.amount==null?'':x.amount)}" placeholder="0"/>
+      <button type="button" class="btn sm pink" onclick="CP_del(${i})" aria-label="${EN()?'Remove':'ลบ'}">${ic('trash')}</button></div>`).join('')
+      ||`<small class="muted">${EN()?'No items yet':'ยังไม่มีรายการ'}</small>`; };
+  window.CP_add=()=>{ CP_read(); (window._CP=window._CP||[]).push({label:'',amount:'',discount:false}); CP_draw(); };
+  window.CP_del=(i)=>{ CP_read(); window._CP.splice(i,1); CP_draw(); };
+  window.CP_save=async(btn)=>{ CP_read(); const rows=window._CP||[];
+    const bad=rows.find(x=>String(x.label||'').trim()?!(FB_money(x.amount)>0):FB_money(x.amount)>0);
+    if(bad){ toast(EN()?'Every item needs a name and an amount':'ทุกรายการต้องมีชื่อและจำนวนเงิน'); return; }
+    const out=rows.filter(x=>String(x.label||'').trim()).map(x=>({label:String(x.label).trim().slice(0,80), amount:FB_money(x.amount), discount:!!x.discount})).slice(0,20);
+    btn.disabled=true;
+    try{ await api('setSchoolConfig',{values:{ChargePresets:JSON.stringify(out)}}); const m=btn.closest('.modal'); if(m) m.remove(); confirmSaved(t('c.saved')); }
+    catch(e){ btn.disabled=false; err(e); } };
 
   window.A_surveys=async()=>{
     const list=await api('surveys',{staffId:USER.staffId},{fresh:true});
@@ -18743,7 +19006,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * pass over the DOM after each paint: an attribute selector hides the control as it is inserted,
    * so it never flashes. The api guard stays as the second layer, and the server is still the one
    * that decides. */
-  const OBS_EDIT_RE = /^A_(add|edit|del|delete|dup|cancel|link|unlink|appApprove|appReject|appVisit|appCfgSave|appSig|appPrintSave|approve|reject|confirm|issue|cycleIssue|gen|save|remove|resume|pause|staffPause|staffResume|staffReturn|staffEnd|studentEnd|reset|restore|recalc|recompute|reimport|reinstall|process|pull|dedup|orph|bulk|ot(Save|Waive|Cancel|Restore|Verify|w)|hot(Add|Del|Save|KidsSave|KidsEdit|Fill)|qr(Add|Del|Save)|pp(Add|Del|Save|Toggle)|pkg(Delete|Save|Form)|sv(Save|Delete|Close|Form|Q)|slv(Del|Save|Edit)|slip(Approve|OkSave|OkUndo)|bill(Undo)|fin(AddCharge|Cash|DelBill|DelCharge|IssueBill|SaveBase|Compute)|fi(Save|Edit|Photo|Retire|Seed)|fm(Save)|inj(Decide|Delete|EditSave|Edit|Unlock)|insurance(Save|Edit)|cert(SaveText|Upload|Settings|Clear)|contrib|soc(Batch)|sot(Batch)|sperfAdjust|term(Do|Form|Cancel)|tzFix|unlock|viewAs|viewAsParent|viewAsStaff|signOutStaff|resetPw|resetPin|viewPw|lineWho(Add|Del|Save|Set)|setGroup|setLeave|setMoney|setNotify|setTools|set$|requireCI|reqCI|saveReqCI|attPunch|editAtt|editStaffTime|docInfoSave|backfillConfig|packages|importFile|consentSet|childOnToggle|bc(Add|Remove|SaveHours)|salaryPaid|dspm(Del|Save|Form)|assessComment|editAssess|payTypeToggle|planFill|sendLine|rejectOT|confirmOT|deleteOT|perfClear|renameDep|yrevSinceSave)/;
+  const OBS_EDIT_RE = /^A_(add|edit|del|delete|dup|cancel|link|unlink|appApprove|appAttach|appBill|firstBill|chargePresets|appReject|appVisit|appCfgSave|appSig|appPrintSave|approve|reject|confirm|issue|cycleIssue|gen|save|remove|resume|pause|staffPause|staffResume|staffReturn|staffEnd|studentEnd|reset|restore|recalc|recompute|reimport|reinstall|process|pull|dedup|orph|bulk|ot(Save|Waive|Cancel|Restore|Verify|w)|hot(Add|Del|Save|KidsSave|KidsEdit|Fill)|qr(Add|Del|Save)|pp(Add|Del|Save|Toggle)|pkg(Delete|Save|Form)|sv(Save|Delete|Close|Form|Q)|slv(Del|Save|Edit)|slip(Approve|OkSave|OkUndo)|bill(Undo)|fin(AddCharge|Cash|DelBill|DelCharge|IssueBill|SaveBase|Compute)|fi(Save|Edit|Photo|Retire|Seed)|fm(Save)|inj(Decide|Delete|EditSave|Edit|Unlock)|insurance(Save|Edit)|cert(SaveText|Upload|Settings|Clear)|contrib|soc(Batch)|sot(Batch)|sperfAdjust|term(Do|Form|Cancel)|tzFix|unlock|viewAs|viewAsParent|viewAsStaff|signOutStaff|resetPw|resetPin|viewPw|lineWho(Add|Del|Save|Set)|setGroup|setLeave|setMoney|setNotify|setTools|set$|requireCI|reqCI|saveReqCI|attPunch|editAtt|editStaffTime|docInfoSave|backfillConfig|packages|importFile|consentSet|childOnToggle|bc(Add|Remove|SaveHours)|salaryPaid|dspm(Del|Save|Form)|assessComment|editAssess|payTypeToggle|planFill|sendLine|rejectOT|confirmOT|deleteOT|perfClear|renameDep|yrevSinceSave)/;
   window.__atomObsStyle = () => {
     const on = isObserver();
     document.body.classList.toggle('ro-observer', on);

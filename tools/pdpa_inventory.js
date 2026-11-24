@@ -72,6 +72,8 @@ const IDENTIFIER = {
   Passport: '🔴 เลขหนังสือเดินทาง', UserUID: 'รหัสผู้ใช้ LINE',
   FileID: '🔴 ไฟล์สำเนาเอกสารราชการ (บัตรประชาชน ทะเบียนบ้าน สูติบัตร)', FileName: 'ชื่อไฟล์เอกสาร',
   InsuredName: 'ชื่อผู้เอาประกัน', InsuranceOwner: 'ชื่อเจ้าของกรมธรรม์',
+  /* 2026-11-25 — the family's OWN insurance (company · policy number · cover), one JSON cell on STUDENTS */
+  PrivateInsurance: 'ประกันส่วนตัวที่ครอบครัวทำเอง (บริษัท · เลขกรมธรรม์ · ความคุ้มครอง)',
   BankAccount: '🔴 เลขบัญชีธนาคาร', BankName: 'ธนาคาร',
   PasswordHash: '🔴 รหัสผ่าน (เข้ารหัสแล้ว)',
   EmergencyContact: 'ผู้ติดต่อฉุกเฉิน',

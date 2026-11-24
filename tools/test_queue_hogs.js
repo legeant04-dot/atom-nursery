@@ -136,7 +136,12 @@ console.log('\n2) 🔴 no screen awaits once per row');
    * than looking like a hang. Named here rather than exempted by a pattern, so the next loop of
    * awaits still has to come and argue its case.
    */
-  const ALLOWED = new Set(['saveFoodItem', 'exportTable']);
+  /* `addStudentCharge` is the third, on the first-bill screen (A_firstBill, 2026-11-25): the few extra
+   * lines of ONE child's first bill (ค่าแรกเข้า · มัดจำ · ส่วนลด — typically one to four), sent one after
+   * another ON PURPOSE. Each creates a new ChargeID from nextSeqId_, and two inserts racing for the same
+   * next id is a worse failure than a second's wait; the screen also has to know which line failed so
+   * it can say so. One admin, one button, a handful of rows. */
+  const ALLOWED = new Set(['saveFoodItem', 'exportTable', 'addStudentCharge']);
   eq('🔴 every remaining per-row await is one we have looked at',
     hogs.filter(h => !ALLOWED.has(h.action)).map(h => h.action + '@' + h.line), []);
 }
