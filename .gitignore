@@ -82,3 +82,8 @@ android/build/
 android/.gradle/
 # the printable PDPA pack — rebuilt by tools/build_pdpa_pdf.js, printed and signed on paper; not a source file
 /PDPA_*.pdf
+
+# Orvia business drafts (packages/pricing, requirements) — kept local, never in the public repo (2026-11-25)
+docs/ORVIA_PACKAGES_DRAFT.md
+docs/ORVIA_PAGE_MAP.md
+docs/ORVIA_REQUIREMENTS.md
