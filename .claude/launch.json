@@ -49,6 +49,18 @@
         "design"
       ],
       "port": 8092
+    },
+    {
+      "name": "uat-live",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tools/uat_live.js",
+        "--db",
+        "atom-prod.env",
+        "--port",
+        "8095"
+      ],
+      "port": 8095
     }
   ]
 }

@@ -10,7 +10,7 @@
  * 🔴 IT DELETES A WHOLE DATABASE'S DATA, SO:
  *   · only through ATOM_PG_ENV=atom-prod.env — never the default staging file (pg_sweep_tenants is for staging)
  *   · only with --confirm wipe-uat-<today, Bangkok> — yesterday's command from the notes is refused
- *   · NEVER ONCE THE APP RUNS ON IT. From 2026-11-27 21:00 Bangkok — MOVE_NIGHT_RUNBOOK step 5a, when
+ *   · NEVER ONCE THE APP RUNS ON IT. From 2026-11-29 21:00 Bangkok (move night moved from Fri 27 to Sun 29 Nov on 2026-11-27, after the UAT was set for Sat 28) — MOVE_NIGHT_RUNBOOK step 5a, when
  *     DB_BACKEND=pg is set — atom-prod is the school's real system; this file refuses outright from then
  *     on, whatever is typed. Until then (D−1, and a failed step 3 on the night itself, while the school
  *     is still on the frozen sheets) emptying it loses nothing. A later wipe is a decision
@@ -20,14 +20,14 @@
  */
 'use strict';
 const path = require('path');
-const WIPE_UNTIL = Date.parse('2026-11-27T21:00:00+07:00');
+const WIPE_UNTIL = Date.parse('2026-11-29T21:00:00+07:00');
 const bkkDay = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
 const argv = process.argv.slice(2);
 const confirm = argv[argv.indexOf('--confirm') + 1];
 const APPLY = argv.indexOf('--confirm') >= 0;
 
 if (path.basename(process.env.ATOM_PG_ENV || '') !== 'atom-prod.env') { console.error('🔴 ใช้กับ atom-prod เท่านั้น: ATOM_PG_ENV=atom-prod.env'); process.exit(2); }
-if (Date.now() >= WIPE_UNTIL) { console.error('🔴 ตั้งแต่ 27 พ.ย. 21:00 (คืนย้ายขั้น 5a) atom-prod คือระบบจริงของโรงเรียน — เครื่องมือนี้ปฏิเสธเสมอ'); process.exit(2); }
+if (Date.now() >= WIPE_UNTIL) { console.error('🔴 ตั้งแต่ 29 พ.ย. 21:00 (คืนย้ายขั้น 5a) atom-prod คือระบบจริงของโรงเรียน — เครื่องมือนี้ปฏิเสธเสมอ'); process.exit(2); }
 if (APPLY && confirm !== 'wipe-uat-' + bkkDay()) { console.error('🔴 ต้องใส่ --confirm wipe-uat-' + bkkDay() + ' (วันที่ของวันนี้)'); process.exit(2); }
 
 (async () => {
