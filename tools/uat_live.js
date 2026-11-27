@@ -57,7 +57,7 @@ const pathOf = a => FAST_READ[a] ? 'รายชื่อเร็ว·อ่า
 /* ---- error codes: a refusal the app meant vs. the system failing -------------------------- */
 // OFFLINE = the phone could not reach us; NO_SESSION / SESSION_* = asked to sign in again. Neither is a rule
 // the app meant to apply, and both are what a tester experiences as "broken".
-const SYSTEM_CODES = /^(INTERNAL|ERR|TIMEOUT|NETWORK|BAD_REPLY|LOST|HTTP|FAST_DOWN|LOCK|BUSY|QUOTA|OFFLINE|NO_SESSION|SESSION|d+$)/i;
+const SYSTEM_CODES = /^(INTERNAL|ERR|TIMEOUT|NETWORK|BAD_REPLY|LOST|HTTP|FAST_DOWN|LOCK|BUSY|QUOTA|OFFLINE|NO_SESSION|SESSION|\d+$)/i;
 const isSystemFail = r => String(r.ok) !== '1' && (!r.code || SYSTEM_CODES.test(r.code));
 
 /* ---- UAT_CHECKLIST tasks the telemetry can see -------------------------------------------- *
@@ -131,12 +131,12 @@ async function rowsSince(from) {
 }
 
 function build(rows, nowMs) {
-  const sess = {}, act = {}, scr = {}, errs = {}, task = TASKS.map(() => ({ ok: 0, refused: 0, fail: 0, last: '' }));
+  const sess = {}, act = {}, scr = {}, errs = {}, task = TASKS.map(() => ({ ok: 0, refused: 0, fail: 0, last: '', who: {} }));
   let hit = 0, miss = 0, api = 0, apiFail = 0, sysFail = 0, fwd = 0;
   const allMs = [];
   for (const r of rows) {
     const s = sess[r.sid] = sess[r.sid] || { sid: r.sid, role: r.role, dev: r.dev, os: r.os, net: r.net, ver: r.ver, pwa: r.pwa,
-      first: r.t, last: r.t, lastE: 0, n: 0, fail: 0, ms: [], screen: '', action: '' };
+      first: r.t, last: r.t, lastE: 0, n: 0, fail: 0, ms: [], screen: '', action: '', done: {} };
     s.last = r.t; s.lastE = Number(r.e); if (r.role && r.role !== 'anon') s.role = r.role; s.net = r.net || s.net;
     if (r.screen && r.type !== 'cache') s.screen = r.screen;
     if (r.type === 'cache') { if (r.action === 'readCache') hit += Number(r.batch) || 0; else miss += Number(r.batch) || 0; continue; }
@@ -170,13 +170,20 @@ function build(rows, nowMs) {
       if (t[1] !== '*' && t[1] !== r.role) return;
       if (t[1] === '*' && (!r.role || r.role === 'anon')) return;
       const st = task[i];
-      if (good) st.ok++; else if (isSystemFail(r)) st.fail++; else st.refused++;
+      const sys = !good && isSystemFail(r);
+      if (good) st.ok++; else if (sys) st.fail++; else st.refused++;
       st.last = r.t;
+      // what counts as "this person did this task": the outcome the checklist expects (success, or a
+      // rule refusal for the ต้องถูกปฏิเสธ rows). A system failure never counts.
+      if (t[4] ? (!good && !sys) : good) { st.who[r.sid] = 1; s.done[i] = 1; }
     });
   }
   const sessions = Object.values(sess).map(s => ({
     sid: s.sid, role: s.role || 'anon', dev: s.dev, os: s.os, net: s.net, ver: s.ver, pwa: s.pwa, first: s.first, last: s.last,
-    agoSec: Math.round((nowMs - s.lastE) / 1000), n: s.n, fail: s.fail, p50: pct(s.ms, 0.5), screen: s.screen, action: s.action
+    agoSec: Math.round((nowMs - s.lastE) / 1000), n: s.n, fail: s.fail, p50: pct(s.ms, 0.5), screen: s.screen, action: s.action,
+    done: Object.keys(s.done).map(Number).sort((a, b) => a - b),
+    // tasks this role is expected to do: its own rows plus the 'ทุกคน' rows
+    mine: TASKS.filter(t => t[1] === '*' || t[1] === (s.role || 'anon')).length
   })).sort((a, b) => a.agoSec - b.agoSec);
   const actions = Object.values(act).map(a => ({
     a: a.a, path: a.path, n: a.n, fail: a.fail, sys: a.sys, p50: pct(a.ms, 0.5), p95: pct(a.ms, 0.95), max: a.ms.length ? Math.round(Math.max(...a.ms)) : null,
@@ -185,6 +192,10 @@ function build(rows, nowMs) {
   })).sort((x, y) => y.total - x.total);
   const screens = Object.values(scr).map(x => ({ k: x.k, n: x.ms.length, p50: pct(x.ms, 0.5), p95: pct(x.ms, 0.95) })).sort((a, b) => (b.p50 || 0) - (a.p50 || 0));
   const errors = Object.values(errs).map(x => ({ k: x.k, n: x.n, people: Object.keys(x.sids).length, last: x.last, business: !!x.business })).sort((a, b) => b.n - a.n);
+  const passOf = (t, i) => t[4] ? task[i].refused > 0 : task[i].ok > 0;
+  const groups = {};
+  TASKS.forEach((t, i) => { const g = groups[t[0]] = groups[t[0]] || { g: t[0], pass: 0, total: 0 }; g.total++; if (passOf(t, i)) g.pass++; });
+  const taskPass = TASKS.filter(passOf).length;
   const roles = {};
   for (const s of sessions) if (s.agoSec <= 300) roles[s.role] = (roles[s.role] || 0) + 1;
   const feed = rows.filter(r => r.type !== 'cache').slice(-60).reverse().map(r => ({
@@ -194,9 +205,11 @@ function build(rows, nowMs) {
   return {
     now: new Date(nowMs).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }), rows: rows.length,
     summary: { activeNow: sessions.filter(s => s.agoSec <= 300).length, roles, sessions: sessions.length, api, apiFail, sysFail, fwd,
-      p50: pct(allMs, 0.5), p95: pct(allMs, 0.95), cacheHit: hit + miss ? Math.round(100 * hit / (hit + miss)) : null },
+      p50: pct(allMs, 0.5), p95: pct(allMs, 0.95), cacheHit: hit + miss ? Math.round(100 * hit / (hit + miss)) : null,
+      taskPass, taskTotal: TASKS.length, taskPct: Math.round(100 * taskPass / TASKS.length), groups: Object.values(groups) },
     sessions, actions, screens, errors, feed, baseName: BASE_NAME,
-    tasks: TASKS.map((t, i) => ({ g: t[0], role: t[1], label: t[2], expectRefusal: !!t[4], ...task[i] }))
+    tasks: TASKS.map((t, i) => ({ g: t[0], role: t[1], label: t[2], expectRefusal: !!t[4], ok: task[i].ok, refused: task[i].refused,
+      fail: task[i].fail, last: task[i].last, who: Object.keys(task[i].who) }))
   };
 }
 
@@ -260,6 +273,7 @@ th{font-weight:600;color:var(--mut);font-size:12px}td.n{text-align:right;font-va
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 input.lbl{width:110px;font:inherit;padding:1px 4px;border:1px solid var(--line);border-radius:4px}
 tr.idle td{color:#a0a7b5}
+td .small{display:block;white-space:normal;max-width:280px;font-size:11px}
 </style></head><body>
 <header><b>🧪 UAT Live · Atom Nursery</b>
 <span>ตั้งแต่ <input id="from" placeholder="2026-11-28 12:30"></span>
@@ -292,20 +306,21 @@ function draw(d){
   const s=d.summary;$('stamp').textContent='อัปเดต '+d.now+' · '+d.rows+' แถว';
   const roles=Object.entries(s.roles).map(([k,v])=>k+' '+v).join(' · ')||'–';
   $('kpis').innerHTML=[
-    ['ออนไลน์ตอนนี้',s.activeNow,roles],['เครื่องทั้งหมด',s.sessions,'ตั้งแต่เวลาที่เลือก'],
+    ['ทดสอบแล้ว',s.taskPct+'%',s.taskPass+'/'+s.taskTotal+' งานในเช็คลิสต์',s.taskPct>=100?'ok':''],['ออนไลน์ตอนนี้',s.activeNow,roles],['เครื่องทั้งหมด',s.sessions,'ตั้งแต่เวลาที่เลือก'],
     ['คำขอ',s.api,'ล้มเหลว '+s.apiFail],['ระบบพัง',s.sysFail,'ไม่นับการปฏิเสธตามกฎ',s.sysFail?'bad':'ok'],
     ['เวลา p50',ms(s.p50),'p95 '+ms(s.p95),tone(s.p50)],['แคชตอบเอง',s.cacheHit==null?'–':s.cacheHit+'%','อ่านซ้ำไม่ต้องรอ'],
     ['ส่งต่อ GAS',s.fwd,'โฮสต์เร็วส่งให้ Apps Script']
   ].map(k=>'<div class="kpi"><div class="v '+(k[3]||'')+'">'+esc(k[1])+'</div><div class="l">'+esc(k[0])+' · '+esc(k[2])+'</div></div>').join('');
-  $('sessions').innerHTML='<table><tr><th>เครื่อง</th><th>ชื่อ (ใส่เอง)</th><th>บทบาท</th><th>มือถือ</th><th>หน้าจอ</th><th>ทำล่าสุด</th><th>ล่าสุด</th><th class="n">คำขอ</th><th class="n">พัง</th><th class="n">p50</th></tr>'+
+  $('sessions').innerHTML='<table><tr><th>เครื่อง</th><th>ชื่อ (ใส่เอง)</th><th>บทบาท</th><th>มือถือ</th><th>หน้าจอ</th><th>ทำล่าสุด</th><th>ล่าสุด</th><th class="n">คำขอ</th><th class="n">พัง</th><th class="n">p50</th><th>งานที่ผ่าน</th></tr>'+
     d.sessions.map(x=>'<tr class="'+(x.agoSec>300?'idle':'')+'"><td><span class="dot" style="background:'+(x.agoSec<=60?'#1f8a4c':x.agoSec<=300?'#d69e2e':'#cbd5e0')+'"></span>'+esc(String(x.sid).slice(-4))+'</td>'+
       '<td><input class="lbl" value="'+esc(LBL[x.sid]||'')+'" onchange="setLbl(\''+esc(x.sid)+'\',this.value)"></td><td>'+esc(x.role)+'</td><td>'+esc([x.dev,x.os,x.net].filter(Boolean).join(' '))+'</td>'+
-      '<td>'+esc(x.screen)+'</td><td>'+esc(x.action)+'</td><td>'+(x.agoSec<60?x.agoSec+' วิ':Math.round(x.agoSec/60)+' นาที')+'</td><td class="n">'+x.n+'</td><td class="n '+(x.fail?'bad':'')+'">'+x.fail+'</td><td class="n '+tone(x.p50)+'">'+ms(x.p50)+'</td></tr>').join('')+'</table>';
+      '<td>'+esc(x.screen)+'</td><td>'+esc(x.action)+'</td><td>'+(x.agoSec<60?x.agoSec+' วิ':Math.round(x.agoSec/60)+' นาที')+'</td><td class="n">'+x.n+'</td><td class="n '+(x.fail?'bad':'')+'">'+x.fail+'</td><td class="n '+tone(x.p50)+'">'+ms(x.p50)+'</td><td><b>'+x.done.length+'/'+x.mine+'</b> <span class="mut small">'+esc(x.done.map(i=>d.tasks[i].label).join(' · '))+'</span></td></tr>').join('')+'</table>';
   let g='';$('tasks').innerHTML='<table>'+d.tasks.map(t=>{
     const pass=t.expectRefusal?t.refused>0:t.ok>0;const icon=pass?'✅':t.fail?'🔴':(t.expectRefusal&&t.ok)?'🟡':(!t.expectRefusal&&t.refused)?'🟡':'⬜';
-    const head=t.g!==g?'<tr><th colspan="3">'+esc(t.g)+'</th></tr>':'';g=t.g;
+    const G=d.summary.groups.find(x=>x.g===t.g);const head=t.g!==g?'<tr><th colspan="3">'+esc(t.g)+' <span class="mut">'+G.pass+'/'+G.total+' · '+Math.round(100*G.pass/G.total)+'%</span></th></tr>':'';g=t.g;
+    const who=t.who.map(k=>LBL[k]||String(k).slice(-4)).join(', ');
     const det=[t.ok?'สำเร็จ '+t.ok:'',t.refused?'ถูกปฏิเสธ '+t.refused:'',t.fail?'พัง '+t.fail:''].filter(Boolean).join(' · ');
-    return head+'<tr><td>'+icon+'</td><td>'+esc(t.label)+(t.expectRefusal?' <span class="pill">ต้องถูกปฏิเสธ</span>':'')+'</td><td class="mut">'+esc(det)+(t.last?' · '+esc(t.last.slice(11)):'')+'</td></tr>';}).join('')+'</table>';
+    return head+'<tr><td>'+icon+'</td><td>'+esc(t.label)+(t.expectRefusal?' <span class="pill">ต้องถูกปฏิเสธ</span>':'')+'</td><td class="mut">'+esc(det)+(t.last?' · '+esc(t.last.slice(11)):'')+(who?' · โดย '+esc(who):'')+'</td></tr>';}).join('')+'</table>';
   $('errors').innerHTML=d.errors.length?'<table><tr><th>อะไร</th><th class="n">ครั้ง</th><th class="n">เครื่อง</th><th>ล่าสุด</th></tr>'+d.errors.map(e=>'<tr><td class="'+(e.business?'warn':'bad')+'">'+esc(e.k)+(e.business?' <span class="pill">ปฏิเสธตามกฎ</span>':'')+'</td><td class="n">'+e.n+'</td><td class="n">'+e.people+'</td><td>'+esc(String(e.last).slice(11))+'</td></tr>').join('')+'</table>':'<span class="ok">ยังไม่มี</span>';
   $('feed').innerHTML='<table>'+d.feed.map(f=>'<tr><td class="mut">'+esc(f.t)+'</td><td>'+esc(f.sid)+'</td><td>'+esc(LBL[Object.keys(LBL).find(k=>k.slice(-4)===f.sid)]||f.role)+'</td><td>'+esc(f.type)+'</td><td>'+esc(f.action||f.screen)+'</td><td class="'+(f.path.startsWith('รายชื่อเร็ว')?'fast':'mut')+'">'+esc(f.path)+'</td><td class="n '+tone(f.ms)+'">'+ms(f.ms)+'</td><td class="'+(f.ok?'ok':'bad')+'">'+(f.type==='api'?(f.ok?'✓':'✗ '+esc(f.code)):'')+'</td></tr>').join('')+'</table>';
   $('actions').innerHTML='<table><tr><th>คำสั่ง</th><th title="อยู่ในรายชื่อเส้นเร็วหรือไม่ — ไม่ใช่ทางที่วิ่งจริง: ทั้งชุดคำขอต้องอยู่ในรายชื่อจึงจะไปเส้นเร็ว">รายชื่อ</th><th>บทบาท</th><th class="n">ครั้ง</th><th class="n">เครื่อง</th><th class="n">p50</th><th class="n">p95</th><th class="n">ช้าสุด</th><th class="n">รอบก่อน p50</th><th class="n">ต่าง</th><th class="n">ล้มเหลว</th><th>รหัส</th></tr>'+
