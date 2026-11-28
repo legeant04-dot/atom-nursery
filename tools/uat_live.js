@@ -68,8 +68,8 @@ const isSystemFail = r => String(r.ok) !== '1' && (!r.code || SYSTEM_CODES.test(
 const TASKS = [
   ['① ทุกคน', '*', 'ล็อกอินเข้าหน้าแรก', ['parentHome', 'staffSelf', 'myAttendanceToday', 'financeSummary', 'notifications']],
   ['② ผู้ปกครอง', 'Parent', 'หน้าแรก', ['parentHome']],
-  ['② ผู้ปกครอง', 'Parent', 'เช็คอินลูกในรัศมี', ['parentCheckin']],
-  ['② ผู้ปกครอง', 'Parent', 'เช็คอินนอกรัศมี → ถูกปฏิเสธ', ['parentCheckin'], 1],
+  ['② ผู้ปกครอง', 'Parent', 'เช็คอิน/เช็คเอาท์ลูก (เช็คอินได้ทุกที่)', ['parentCheckin']],
+  ['② ผู้ปกครอง', 'Parent', 'เช็คเอาท์นอกรัศมี → ถูกปฏิเสธ', ['parentCheckin'], 1],
   ['② ผู้ปกครอง', 'Parent', 'ดูบิลเดือนนี้', ['payments', 'parentDue', 'billDocument']],
   ['② ผู้ปกครอง', 'Parent', 'อัปโหลดสลิป', ['uploadSlip', 'verifySlip', 'payCombined', 'payCharge', 'payOT']],
   ['② ผู้ปกครอง', 'Parent', 'สลิปซ้ำ/สลิปเดิมกับบิลอื่น → ถูกปฏิเสธ', ['uploadSlip', 'verifySlip', 'payCombined', 'payCharge', 'payOT'], 1],
