@@ -831,7 +831,14 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     staffMissingCheckout: 1, myClassCover: 1, injuryAlerts: 1, absenceWatchCount: 1,
     // เงิน — อ่านอย่างเดียวทั้งหมด
     payments: 1, paymentSlips: 1, paymentLog: 1, prepayments: 1, studentCharges: 1, otDaily: 1,
-    parentDue: 1, financeSummary: 1, payrollConfig: 1
+    parentDue: 1, financeSummary: 1, payrollConfig: 1,
+    /* ผู้ปกครอง (UAT 28/11/26): หน้าแรก/จ่ายเงิน/สมุด/พัฒนาการ ส่งเป็นก้อนเดียว — มีตัวเดียวที่เส้นเร็วไม่รับ
+     * ทั้งก้อนก็ไปรอ Apps Script (p50 ~10 วิ) · ทุกตัวเป็นการอ่านล้วนในเอนจิน ไม่มี route ซ้อนใน Code.gs
+     * พิสูจน์ด้วย route_sweep_real --from-db (สองฝั่งอ่านฐานเดียวกัน) ก่อนเปิด */
+    parentHome: 1, activeAnnouncements: 1, foodPhotos: 1, getQRCodes: 1, schoolConfig: 1,
+    parentChildren: 1, studentCheckinHistory: 1, journalHistory: 1, journalInjuries: 1,
+    studentVaccines: 1, growthHistory: 1, vaccineSchedule: 1, dspmStatus: 1, studentAllBands: 1,
+    studentBillBase: 1, schoolDay: 1, familyProfile: 1
   };
   /* ---- การเขียนที่เส้นเร็วรับ (UAT / คืนย้าย · 2026-11-14) ------------------------------------
    *
