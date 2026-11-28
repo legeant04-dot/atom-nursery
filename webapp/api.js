@@ -422,6 +422,11 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     if (j.token) { _session = j.token; try { localStorage.setItem('atom_session_token', j.token); } catch (x) {} }
     // ทั้งคำขอไม่ได้ทำอะไรบนโฮสต์ → ทั้งคำขอไป GAS
     if (fwdCode(j)) return viaGas(body);
+    /* 📏 WHICH WAY IT REALLY WENT (UAT 28/11/26). An `api` row says how long the user waited, not whether
+     * the fast host or Apps Script answered — the routing list only says what MAY go fast; one GAS-only
+     * call sends a whole batch to Apps Script. One row per round trip the fast host actually answered;
+     * a batch says how many calls it carried. The UAT view and the Monday measurement read these. */
+    try { PERF.mark('viaFast', asked === 'batch' ? ('batch×' + ((body.calls || []).length)) : asked, 0); } catch (x) {}
     if (asked !== 'batch' || !j.ok || !Array.isArray(j.data)) return j;
 
     /* ── batch: บาง call ทำบนโฮสต์แล้ว บาง call โฮสต์ไม่ได้ทำ ──────────────────────────────

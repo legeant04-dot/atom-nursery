@@ -132,7 +132,8 @@ async function rowsSince(from) {
 
 function build(rows, nowMs) {
   const sess = {}, act = {}, scr = {}, errs = {}, task = TASKS.map(() => ({ ok: 0, refused: 0, fail: 0, last: '', who: {} }));
-  let hit = 0, miss = 0, api = 0, apiFail = 0, sysFail = 0, fwd = 0;
+  let hit = 0, miss = 0, api = 0, apiFail = 0, sysFail = 0, fwd = 0, viaFastTrips = 0, viaFastCalls = 0;
+  const fastByScreen = {};
   const allMs = [];
   for (const r of rows) {
     const s = sess[r.sid] = sess[r.sid] || { sid: r.sid, role: r.role, dev: r.dev, os: r.os, net: r.net, ver: r.ver, pwa: r.pwa,
@@ -141,6 +142,9 @@ function build(rows, nowMs) {
     if (r.screen && r.type !== 'cache') s.screen = r.screen;
     if (r.type === 'cache') { if (r.action === 'readCache') hit += Number(r.batch) || 0; else miss += Number(r.batch) || 0; continue; }
     if (r.type === 'fastFwd') { fwd++; continue; }
+    // v516+: one row per round trip the fast host really answered ('batch×N' carried N calls)
+    if (r.type === 'viaFast') { const m = /×(\d+)$/.exec(String(r.action || '')); const n = m ? Number(m[1]) : 1;
+      viaFastTrips++; viaFastCalls += n; const k = r.screen || '?'; fastByScreen[k] = (fastByScreen[k] || 0) + n; continue; }
     if (r.type === 'nav' || r.type === 'boot') {
       const k = (r.type === 'boot' ? '⏻ เปิดแอป · ' + (r.role || '') : r.action || r.screen || '?');
       const x = scr[k] = scr[k] || { k, ms: [] }; if (r.ms != null) x.ms.push(Number(r.ms));
@@ -206,6 +210,7 @@ function build(rows, nowMs) {
     now: new Date(nowMs).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }), rows: rows.length,
     summary: { activeNow: sessions.filter(s => s.agoSec <= 300).length, roles, sessions: sessions.length, api, apiFail, sysFail, fwd,
       p50: pct(allMs, 0.5), p95: pct(allMs, 0.95), cacheHit: hit + miss ? Math.round(100 * hit / (hit + miss)) : null,
+      viaFastTrips, viaFastCalls, fastPct: api ? Math.round(100 * Math.min(viaFastCalls, api) / api) : null, fastByScreen,
       taskPass, taskTotal: TASKS.length, taskPct: Math.round(100 * taskPass / TASKS.length), groups: Object.values(groups) },
     sessions, actions, screens, errors, feed, baseName: BASE_NAME,
     tasks: TASKS.map((t, i) => ({ g: t[0], role: t[1], label: t[2], expectRefusal: !!t[4], ok: task[i].ok, refused: task[i].refused,
@@ -309,7 +314,7 @@ function draw(d){
     ['ทดสอบแล้ว',s.taskPct+'%',s.taskPass+'/'+s.taskTotal+' งานในเช็คลิสต์',s.taskPct>=100?'ok':''],['ออนไลน์ตอนนี้',s.activeNow,roles],['เครื่องทั้งหมด',s.sessions,'ตั้งแต่เวลาที่เลือก'],
     ['คำขอ',s.api,'ล้มเหลว '+s.apiFail],['ระบบพัง',s.sysFail,'ไม่นับการปฏิเสธตามกฎ',s.sysFail?'bad':'ok'],
     ['เวลา p50',ms(s.p50),'p95 '+ms(s.p95),tone(s.p50)],['แคชตอบเอง',s.cacheHit==null?'–':s.cacheHit+'%','อ่านซ้ำไม่ต้องรอ'],
-    ['ส่งต่อ GAS',s.fwd,'โฮสต์เร็วส่งให้ Apps Script']
+    ['วิ่งเส้นเร็วจริง',s.fastPct==null?'–':s.fastPct+'%',s.viaFastCalls+' คำสั่ง · '+s.viaFastTrips+' รอบ (v516+)'],['ส่งต่อ GAS',s.fwd,'โฮสต์เร็วส่งให้ Apps Script']
   ].map(k=>'<div class="kpi"><div class="v '+(k[3]||'')+'">'+esc(k[1])+'</div><div class="l">'+esc(k[0])+' · '+esc(k[2])+'</div></div>').join('');
   $('sessions').innerHTML='<table><tr><th>เครื่อง</th><th>ชื่อ (ใส่เอง)</th><th>บทบาท</th><th>มือถือ</th><th>หน้าจอ</th><th>ทำล่าสุด</th><th>ล่าสุด</th><th class="n">คำขอ</th><th class="n">พัง</th><th class="n">p50</th><th>งานที่ผ่าน</th></tr>'+
     d.sessions.map(x=>'<tr class="'+(x.agoSec>300?'idle':'')+'"><td><span class="dot" style="background:'+(x.agoSec<=60?'#1f8a4c':x.agoSec<=300?'#d69e2e':'#cbd5e0')+'"></span>'+esc(String(x.sid).slice(-4))+'</td>'+
