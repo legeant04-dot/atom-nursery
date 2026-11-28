@@ -95,7 +95,8 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     // eleventh, contains "Checkout"). Pinned deliberately: every entry here has been read against
     // its handler, and the count is what makes an unchecked addition impossible to slip in.
     // seventeen (2026-11-15): journalDraftsPending — filter + map over M.journals, writes nothing
-    eq('the list is exactly the seventeen that were checked', names.length, 17);
+    // eighteen (2026-11-28): absenceWatchCount — counts H.absenceReport's rows, writes nothing
+    eq('the list is exactly the eighteen that were checked', names.length, 18);
     /* 🔴 THREE OF THEM DO NOT LIVE IN THE ENGINE, and that is why they are named here rather than
      * quietly exempted. exportManifest / exportTable (src/Portability.gs), onboardingCheck
      * (src/Onboarding.gs) and demoStatus (src/Demo.gs) are explicit ROUTES — the engine-body check below cannot find them, and a

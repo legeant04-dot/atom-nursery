@@ -83,7 +83,7 @@ console.log('\n3) the client and the server answer "does this write?" identicall
   /* 16 since v464: demoStatus. It is a pure read that answers one boolean before anybody has
    * signed in — see src/Demo.gs. Growing this list stays a deliberate act; that is the point of
    * pinning the number at all. */
-  eq('seventeen of them (+ journalDraftsPending, 2026-11-15)', names(serverList).length, 17);
+  eq('eighteen of them (+ journalDraftsPending 2026-11-15, + absenceWatchCount 2026-11-28)', names(serverList).length, 18);
   ok_('...including the ones whose NAMES are the trap',
     ['staffMissingCheckout', 'prepaidStudents'].every(n => names(serverList).indexOf(n) >= 0));
   const clientW = (api.match(/const WRITES = \{([\s\S]*?)\};/) || [, ''])[1];
