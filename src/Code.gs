@@ -1164,7 +1164,7 @@ var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confi
  *     studentCheckinHistory / studentLeaves / getPlans came from.
  * Keep it identical to READ_ONLY in webapp/api.js — tools/test_readonly_sync.js fails if it drifts.
  */
-var READ_ONLY_ACTIONS_ = { demoStatus: 1, absenceReport: 1, journalDraftsPending: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
+var READ_ONLY_ACTIONS_ = { absenceWatchCount: 1, demoStatus: 1, absenceReport: 1, journalDraftsPending: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
   payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1,
   // starts with "prepay", so the verb test calls it a write. It only asks which children have
   // already paid for a month; see the note in webapp/api.js READ_ONLY.
