@@ -581,7 +581,10 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
         try { err('onerror', (e.message || '') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || 0)); } catch (x) {}
       });
       window.addEventListener('unhandledrejection', e => {
-        try { const r = e.reason; err('unhandled', (r && (r.code ? r.code + ' ' : '') + (r.message || r)) || 'rejection'); } catch (x) {}
+        /* a request that died because the session ended is already an api row with its code, and the app
+         * has put the login card up — counting it again as a crash made a deliberate sign-out look like
+         * a broken release (UAT 28/11, "ออกจากระบบทุกเครื่อง") */
+        try { const r = e.reason; if (r && r.code === 'NO_SESSION') return; err('unhandled', (r && (r.code ? r.code + ' ' : '') + (r.message || r)) || 'rejection'); } catch (x) {}
       });
       // navigation timing: how long the shell itself took, once, per session
       window.addEventListener('load', () => setTimeout(() => {

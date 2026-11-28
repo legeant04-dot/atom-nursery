@@ -1535,8 +1535,10 @@
       // clobber the new one (e.g. home's deferred #anns write firing after navigating to leaves).
       // Every "โหลดไม่สำเร็จ" the user has ever seen has been invisible to us. Record it with the
       // screen and the error code — this is the single most direct answer to "มี Error บางครั้งในมือถือ".
-      if(r&&r.catch) r.catch(e=>{ try{ window.__atomPerfErr&&__atomPerfErr('screen:'+screen,((e&&e.code)?e.code+' ':'')+((e&&e.message)||e)); }catch(x){} });
-      if(r&&r.catch) r.catch(e=>{ if(CURRENT!==screen)return; app.innerHTML=failBox(e, `GO('${screen}')`); });
+      /* a screen still loading when the session ended is not a screen that failed — the login card is up
+       * (__atomSignedOut) and the api rows already carry NO_SESSION; an err row here was double-counted (UAT 28/11) */
+      if(r&&r.catch) r.catch(e=>{ if(!USER) return; try{ window.__atomPerfErr&&__atomPerfErr('screen:'+screen,((e&&e.code)?e.code+' ':'')+((e&&e.message)||e)); }catch(x){} });
+      if(r&&r.catch) r.catch(e=>{ if(!USER || CURRENT!==screen)return; app.innerHTML=failBox(e, `GO('${screen}')`); });
     } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`;
     if(!snap) window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
@@ -5915,6 +5917,10 @@
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
+    /* SIGNED OUT WHILE THIS WAS LOADING (UAT 28/11/26, one teacher's Android: "Cannot read properties of null
+     * (reading 'role')"). The calls above can take seconds; a session that dies meanwhile leaves USER null and
+     * the login card already painted — nothing below has anyone to draw for. */
+    if(!USER) return;
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
     USER._isLeader = isLeader;   // remembered for screens that cannot re-read the staff record (isLeaderRole)
     const canOrg = !!me0.CanClassOrg || isLeader;   // may use the drag class-organize tool (admin-granted)
